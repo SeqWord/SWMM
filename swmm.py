@@ -4,8 +4,8 @@ import os, sys
 import subprocess
 import argparse
 
-__version__ = "3.3.0"
-date_of_creation = "1 June 2026"
+__version__ = "1.0.0"
+date_of_creation = "21 July 2026"
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 

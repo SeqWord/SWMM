@@ -2,7 +2,7 @@ import sys, os
 path = os.path.join(os.getcwd(),"lib")
 import main, tools, cui
 
-version = "3.2.7"
+__version__ = version = "3.2.7"
 date_of_creation = "05/05/2026"
 
 def show_help():

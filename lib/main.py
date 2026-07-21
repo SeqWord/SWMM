@@ -307,8 +307,6 @@ class Interface:
                 max_sites_for_verification=self.options['-r'])
             # Add motif object to the list
             MotifObjLs.append(oMotifObj)
-            if motif == "CCGG,2,-2":
-                5/0
         return MotifObjLs
             
     def create_circular_motif_map(self, GFF_list, genome_list, filtered_loci_list=[]):

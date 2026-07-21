@@ -1,0 +1,1 @@
+py generate_pseudobins.py -o pseudobins -m 50000 -x 200000

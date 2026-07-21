@@ -1,153 +1,383 @@
-# SWMM
+# SWMM — SeqWord Motif Mapper
+
+**SWMM (SeqWord Motif Mapper)** is a Python program for visualizing and statistically evaluating the distribution of epigenetically modified nucleotides and motifs in bacterial genomes and metagenomic contigs.
+
+SWMM provides two main workflows:
+
+- **`sort-contigs`** — sorts previously binned metagenomic contigs according to their methylation-motif patterns.
+- **`methylation-pattern`** — visualizes genome methylation patterns and evaluates the distribution of epigenetically modified bases.
+
+## Contents
+
+- [General usage](#general-usage)
+- [Sort contigs](#sort-contigs)
+- [Methylation pattern](#methylation-pattern)
+- [Contact](#contact)
+
+## General usage
+
+Display the main help message:
+
+```bash
 python3 swmm.py --help
+```
+
+```text
 usage: swmm.py [-h] [-v]
+```
 
-Wrapper for sort-contigs and methylation-pattern.
+| Option | Description |
+| --- | --- |
+| `-h`, `--help` | Show the help message and exit. |
+| `-v`, `--version` | Show the program version and exit. |
 
-sort-contigs
-    Sorts binned contigs based on patterns of methylated motifs.
-    For more details, run:
-        python3 run.py sort-contigs --help
+## Sort contigs
 
-methylation-pattern
-    Visualizes genome methylation patterns.
-    For more details, run:
-        python3 run.py methylation-pattern --help
+The `sort-contigs` command sorts binned contigs based on patterns of methylated motifs.
 
-options:
-  -h, --help     show this help message and exit
-  -v, --version  show program's version number and exit
+### Help
 
-  #SWMM sort-contigs
+```bash
 python3 swmm.py sort-contigs --help
-usage: sort_contigs.py [-h] [-i INPUT_FOLDER] [-o OUTPUT_FOLDER] [-p PROJECT_FOLDER] [-g GFF_FILE] [-m MOTIFS]
-                       [--output_graph_format {SVG,HTML,PDF,EPS,JPG,JPEG,TIF,TIFF,PNG,BMP}] [-u {keep,split}]
-                       [--filter_chimeric_contigs FILTER_CHIMERIC_CONTIGS] [-c {Y,y,N,n}] [--dpi DPI] [--mqs MQS]
-                       [-l SLIDING_WINDOW_LENGTH] [-w SLIDING_WINDOW_STEP] [--file_name_separator FILE_NAME_SEPARATOR]
+```
+
+### Usage
+
+```text
+usage: sort_contigs.py [-h]
+                       [-i INPUT_FOLDER]
+                       [-o OUTPUT_FOLDER]
+                       [-p PROJECT_FOLDER]
+                       [-g GFF_FILE]
+                       [-m MOTIFS]
+                       [--output_graph_format {SVG,HTML,PDF,EPS,JPG,JPEG,TIF,TIFF,PNG,BMP}]
+                       [-u {keep,split}]
+                       [--filter_chimeric_contigs FILTER_CHIMERIC_CONTIGS]
+                       [-c {Y,y,N,n}]
+                       [--dpi DPI]
+                       [--mqs MQS]
+                       [-l SLIDING_WINDOW_LENGTH]
+                       [-w SLIDING_WINDOW_STEP]
+                       [--file_name_separator FILE_NAME_SEPARATOR]
                        [-s {Y,N,y,n}]
+```
 
-Program description
+### Arguments
 
-options:
-  -h, --help            show this help message and exit
-  -i, --input_folder INPUT_FOLDER
-                        Input folder (default: input)
-  -o, --output_folder OUTPUT_FOLDER
-                        Output folder (default: output)
-  -p, --project_folder PROJECT_FOLDER
-                        Project folder (default: current directory)
-  -g, --gff_file GFF_FILE
-                        GFF file with epigenetic predictions (default: '', search for bin-specific gff files)
-  -m, --motifs MOTIFS   Semicolon-separated motif definitions: 'GATC,2,-2; CCWGG,2,-2
-  --output_graph_format {SVG,HTML,PDF,EPS,JPG,JPEG,TIF,TIFF,PNG,BMP}
-                        Output graph format (default: SVG)
-  -u, --unresolved_contigs {keep,split}
-                        Either keep or split unresolved contigs with insignificant methylation patterns (default:
-                        keep)
-  --filter_chimeric_contigs FILTER_CHIMERIC_CONTIGS
-                        Filter contigs with non-random distribution of modified sites, accepts 'Yes', 'No', or 0 <
-                        p-value <= 0.05 (default: No)
-  -c, --circular_graph {Y,y,N,n}
-                        Produce cicular graph in graphical output (default: Y)
-  --dpi DPI             Output image DPI (default: 600)
-  --mqs MQS             Minimum methylation quality score (default: 20)
-  -l, --sliding_window_length SLIDING_WINDOW_LENGTH
-                        Sliding window length (default: 2000)
-  -w, --sliding_window_step SLIDING_WINDOW_STEP
-                        Sliding window step (default: 500)
-  --file_name_separator FILE_NAME_SEPARATOR
-                        Separator in file name to select basename as the first part of the name (default: '')
-  -s, --save_graphs {Y,N,y,n}
-                        Save graphs (Y/N, default: Y)
+| Option | Description | Default |
+| --- | --- | --- |
+| `-h`, `--help` | Show the help message and exit. | — |
+| `-i INPUT_FOLDER`, `--input_folder INPUT_FOLDER` | Input folder. | `input` |
+| `-o OUTPUT_FOLDER`, `--output_folder OUTPUT_FOLDER` | Output folder. | `output` |
+| `-p PROJECT_FOLDER`, `--project_folder PROJECT_FOLDER` | Project folder. | Current directory |
+| `-g GFF_FILE`, `--gff_file GFF_FILE` | GFF file containing epigenetic predictions. If omitted, the program searches for bin-specific GFF files. | Empty |
+| `-m MOTIFS`, `--motifs MOTIFS` | Semicolon-separated motif definitions, for example `GATC,2,-2; CCWGG,2,-2`. | — |
+| `--output_graph_format FORMAT` | Output format: `SVG`, `HTML`, `PDF`, `EPS`, `JPG`, `JPEG`, `TIF`, `TIFF`, `PNG`, or `BMP`. | `SVG` |
+| `-u {keep,split}`, `--unresolved_contigs {keep,split}` | Keep or split unresolved contigs with statistically insignificant methylation patterns. | `keep` |
+| `--filter_chimeric_contigs VALUE` | Filter contigs with a non-random distribution of modified sites. Accepts `Yes`, `No`, or a p-value satisfying `0 < p <= 0.05`. | `No` |
+| `-c {Y,y,N,n}`, `--circular_graph {Y,y,N,n}` | Produce a circular graph. | `Y` |
+| `--dpi DPI` | Output image resolution in dots per inch. | `600` |
+| `--mqs MQS` | Minimum methylation quality score. | `20` |
+| `-l LENGTH`, `--sliding_window_length LENGTH` | Sliding-window length. | `2000` |
+| `-w STEP`, `--sliding_window_step STEP` | Sliding-window step. | `500` |
+| `--file_name_separator SEPARATOR` | Separator used to select the basename as the first part of a filename. | Empty |
+| `-s {Y,N,y,n}`, `--save_graphs {Y,N,y,n}` | Save generated graphs. | `Y` |
 
-#SWMM methylation-pattern
-py swmm.py methylation-pattern --help
+## Methylation pattern
+
+The `methylation-pattern` command processes GFF files generated by `ipdSummary`, produces graphical representations, and performs statistical analysis of the distribution of epigenetically modified bases.
+
+### Help
+
+```bash
+python3 swmm.py methylation-pattern --help
+```
+
+### General usage
+
+```bash
+python run.py [arguments]
+python run.py -h
+python run.py --help
+python run.py -v
+python run.py --version
+```
+
+### Example
+
+```bash
+python program.py \
+    -i input.gff \
+    -g genome.gbk \
+    -d example \
+    -mm Y \
+    -w GATC,2,-2 \
+    -p 100 \
+    -sp Y
+```
+
+This example:
+
+1. Reads `input.gff` and `genome.gbk` from `./input/example`.
+2. Writes graphical and text output to `./output/example`.
+3. Searches for the motif `GATC,2,-2`.
+4. Treats the second nucleotide from the left on the direct strand and the second nucleotide from the right on the reverse-complement strand as modified positions.
+5. Sets the promoter length to `100` bp.
+6. Enables circular-map visualization and motif-distribution statistics.
+
+### General settings
+
+| Option | Description | Default |
+| --- | --- | --- |
+| `-d FOLDER`, `--project_directory FOLDER` | Project subfolder. | Empty |
+| `-i FILE`, `--input_GFF FILE` | Input GFF filename. Required. | Empty |
+| `-g FILE`, `--input_GBK FILE` | Input GenBank filename. Required. | Empty |
+| `-m FILE`, `--filter_file FILE` | File defining regions to filter. | Empty |
+| `-ft NAME`, `--generic_file_name NAME` | Generic output filename. | Empty |
+| `-ogf FORMAT`, `--output_graph_format FORMAT` | Output format: `SVG`, `HTML`, `PDF`, `EPS`, `JPG`, `JPEG`, `TIF`, `TIFF`, `PNG`, or `BMP`. | `HTML` |
+| `-dpi DPI`, `--dpi DPI` | Raster-image resolution from 100 to 1200 dpi. | `300` |
+| `-p LENGTH`, `--promoter_length LENGTH` | Promoter-region length. | `75` |
+| `-r NUMBER`, `--maximum_sites NUMBER` | Maximum number of sites to verify. Use `0` to skip checking. | `10000` |
+| `-n NUMBER`, `--blast_context_mismatch NUMBER` | Allowed number of context mismatches. | `2` |
+| `-z Yes/No`, `--blast_motif_mismatch Yes/No` | Allow motif mismatches. | `Yes` |
+| `-u FOLDER`, `--input_folder FOLDER` | Input folder. | `input` |
+| `-o FOLDER`, `--output_folder FOLDER` | Output folder. | `output` |
+| `-x FOLDER` | Executable folder. | `./lib/bin` |
+| `-tmp FOLDER` | Temporary folder. | `./lib/bin/tmp` |
+
+### Circular-map settings
+
+| Option | Description | Default |
+| --- | --- | --- |
+| `-mm Y/N`, `--circular_map Y/N` | Generate a circular plot. | `Y` |
+| `-w MOTIF`, `--cmap_motif MOTIF` | Motif definition, for example `GATC,2,-2`. | — |
+| `-s MODE`, `--sites_or_motifs MODE` | Search for sites or motifs. Accepted values include `sites`, `motifs`, `S`, and `M`. | `sites` |
+| `-f M/U`, `--modified_or_unmodified M/U` | Display modified or unmodified motifs. | `M` |
+| `-wl LENGTH`, `--window_length LENGTH` | Sliding-window length. | `8000` |
+| `-ws STEP`, `--window_step STEP` | Sliding-window step. | `2000` |
+| `-c SCORE`, `--cmap_score_cutoff SCORE` | Circular-plot score cutoff. | `21` |
+| `-cmt TITLE`, `--cmap_graph_title TITLE` | Circular-map graph title. | Empty |
+
+### Dot-plot settings
+
+| Option | Description | Default |
+| --- | --- | --- |
+| `-dp Y/N`, `--dotplot Y/N` | Generate a dot plot. | `N` |
+| `-dpn BASES`, `--nucleotides BASES` | Nucleotides to display: `A`, `C`, `G`, `T`, or an empty value. | `A,C` |
+| `-dpm TYPES`, `--methylation_types TYPES` | Methylation types to display, such as `m6A` or `m4C`. | Empty |
+| `-dpf MOTIFS`, `--dotplot_motifs MOTIFS` | Motifs to include or exclude, for example `GATC,2,-2; -CRGKGATC,1,6,-2`. | — |
+| `-dpc SCORE`, `--dotplot_score_cutoff SCORE` | Dot-plot score cutoff. | `21` |
+| `-dpw VALUE`, `--maximum_coverage VALUE` | Maximum coverage on the x-axis. Use `0` for automatic scaling. | `0` |
+| `-dps VALUE`, `--maximum_score VALUE` | Maximum score on the y-axis. Use `0` for automatic scaling. | `0` |
+| `-dpt TITLE`, `--dp_graph_title TITLE` | Dot-plot graph title. | Empty |
+
+### Statistics settings
+
+| Option | Description | Default |
+| --- | --- | --- |
+| `-sp Y/N`, `--statplot Y/N` | Generate a statistics panel. | `Y` |
+| `-tsk TASKS`, `--tasks TASKS` | Statistical tasks, such as `gc`, `gcs`, and `mge`. | `gc,gcs` |
+| `-std MODE`, `--strand MODE` | Exclude the `leading` or `lagging` strand, or use `off` to disable strand exclusion. | `off` |
+| `-spt TITLE`, `--sp_graph_title TITLE` | Statistical-panel graph title. | Empty |
+
+## Contact
+
+For further information, refer to the project documentation or contact:
+
+**Oleg Reva**  
+University of Pretoria  
+Email: `oleg.reva@up.ac.za`
+Library
+/
+README.md
 
 
-========================================================================
-           SeqWord Motif Mapper v3.2.6 Program Help Guide
-========================================================================
+# SWMM — SeqWord Motif Mapper
 
-General Usage:
+**SWMM (SeqWord Motif Mapper)** is a Python program for visualizing and statistically evaluating the distribution of epigenetically modified nucleotides and motifs in bacterial genomes and metagenomic contigs.
 
-python run.py [-arguments]
-python run.py -h / -H / --help - show this help
-python run.py -v / -V / --version - show version
+SWMM provides two main workflows:
 
-This program processes GFF files generated by the program ipdSummary.
-The program generates graphical representations, and performs statistical
-analysis of distribution of epigenetically modified bases.
+- **`sort-contigs`** — sorts previously binned metagenomic contigs according to their methylation-motif patterns.
+- **`methylation-pattern`** — visualizes genome methylation patterns and evaluates the distribution of epigenetically modified bases.
 
-Below are the available options.
+## Contents
 
----------------------------------------------
-Example Usage:
----------------------------------------------
-python program.py -i input.gff -g genome.gbk -d example -mm Y -w GATC,2,-2 -p 100 -sp Y
+- [General usage](#general-usage)
+- [Sort contigs](#sort-contigs)
+- [Methylation pattern](#methylation-pattern)
+- [Contact](#contact)
 
-This example runs the program with an input GFF and GBK file stored in folder
-./input/example; graphic and text output files will be stored in the folder
-./output/example; sets the sought motif to GATC,2,-2 epigenetically modified
-at 2nd nucleotide from left on the direct strand and at 2nd nucleotide from
-right on the reverse-complement strand, the promoter length set to 100, and
-enables both circular map visualization and motif distribution statistics.
+## General usage
 
----------------------------------------------
-General Settings:
----------------------------------------------
--d   (--project_directory)     <folder> Subfolder for the project (Default: void)
--i   (--input_GFF)             <file> Input GFF file name(Default: void, must be set!)
--g   (--input_GBK)             <file> Input GBK file name(Default: void, must be set!)
--m   (--filter_file)           <file> Filter regions (Default: void)
--ft  (--generic_file_name)     <str> Generic file title (Default: void)
--ogf (--output_graph_format)   <str> Output graph format (Default: HTML)
-                               acceptable options: SVG, HTML, PDF, EPS,
-                               JPG, JPEG, TIF, TIFF, PNG, BMP
--dpi (--dpi)                   <int> Raster DPI (100 <= dpi <= 1200; Default: 300)
--p   (--promoter_length)       <int> Promoter region length (Default: 75)
--r   (--maximum_sites)         <int> Maximum number of sites for verification
-                               (0 to skip checking; Default: 10,000)
--n   (--blast_context_mismatch)<int> Allowed number of context mismatches (Default: 2)
--z   (--blast_motif_mismatch)  <Yes/No> Allow motif mismatch (Default: Yes)
--u   (--input_folder)          <folder> Input folder (Default: input)
--o   (--output_folder)         <folder> Output folder (Default: output)
--x   (--tmp_folder)            <folder> Executable folder (Default: ./lib/bin)
--tmp (--tmp_folder)            <folder> Temporary folder (Default: ./lib/bin/tmp)
+Display the main help message:
 
----------------------------------------------
-Circular Map Settings:
----------------------------------------------
--mm  (--circular_map)           <Y/N> Generate circular plot graph (Default: Y)
--w   (--cmap_motif)             <str> Motif (e.g., GATC,2,-2)
--s   (--sites_or_motifs)        <sites/motifs | S/M> Search for sites (S) or motifs (M) (Default: sites)
--f   (--modified_or_unmodified) <M/U> Modified (M) or Unmodified (U) motifs (Default: M)
--wl  (--window_length)          <int> Sliding window length (Default: 8000)
--ws  (--window_step)            <int> Sliding window step (Default: 2000)
--c   (--cmap_score_cutoff)      <int> Circular plot score cutoff (Default: 21)
--cmt (--cmap_graph_title)       <str> Circular map graph title (Default: void)
+```bash
+python3 swmm.py --help
+```
 
----------------------------------------------
-Dot-Plot Settings:
----------------------------------------------
--dp  (--dotplot)                <Y/N> Generate dot-plot graph (Default: N)
--dpn (--nucleotides)            <A,C,G,T, or void> Nucleotides to display (Default: A,C)
--dpm (--methylation_types)      <m6A,m4C, or void> Methylation types (Default: void)
--dpf (--dotplot_motifs)         <str> Methylation motifs to include/exclude
-                                (e.g., GATC,2,-2; -CRGKGATC,1,6,-2)
--dpc (--dotplot_score_cutoff)   <int> Dotplot score cutoff (Default: 21)
--dpw (--maximum_coverage)       <int> Maximum coverage (X value) (Default: 0)
--dps (--maximum_score)          <int> Maximum score (Y value) (Default: 0)
--dpt (--dp_graph_title)         <str> Dot-plot graph title (Default: void)
+```text
+usage: swmm.py [-h] [-v]
+```
 
----------------------------------------------
-Statistics Settings:
----------------------------------------------
--sp  (--statplot)               <Y/N> Generate statistics panel (Default: Y)
--tsk (--tasks)                  <gc, gcs, mge, ''> Tasks like (Default: gc, gcs)
--std (--strand)                 <leading, lagging, off> Exclude strand (Default: off)
--spt (--sp_graph_title)         <str> Statistical plot graph title (Default: void)
+| Option | Description |
+| --- | --- |
+| `-h`, `--help` | Show the help message and exit. |
+| `-v`, `--version` | Show the program version and exit. |
 
+## Sort contigs
 
-For further information, refer to the official documentation or contact oleg.reva@up.ac.za
-========================================================================
+The `sort-contigs` command sorts binned contigs based on patterns of methylated motifs.
 
+### Help
+
+```bash
+python3 swmm.py sort-contigs --help
+```
+
+### Usage
+
+```text
+usage: sort_contigs.py [-h]
+                       [-i INPUT_FOLDER]
+                       [-o OUTPUT_FOLDER]
+                       [-p PROJECT_FOLDER]
+                       [-g GFF_FILE]
+                       [-m MOTIFS]
+                       [--output_graph_format {SVG,HTML,PDF,EPS,JPG,JPEG,TIF,TIFF,PNG,BMP}]
+                       [-u {keep,split}]
+                       [--filter_chimeric_contigs FILTER_CHIMERIC_CONTIGS]
+                       [-c {Y,y,N,n}]
+                       [--dpi DPI]
+                       [--mqs MQS]
+                       [-l SLIDING_WINDOW_LENGTH]
+                       [-w SLIDING_WINDOW_STEP]
+                       [--file_name_separator FILE_NAME_SEPARATOR]
+                       [-s {Y,N,y,n}]
+```
+
+### Arguments
+
+| Option | Description | Default |
+| --- | --- | --- |
+| `-h`, `--help` | Show the help message and exit. | — |
+| `-i INPUT_FOLDER`, `--input_folder INPUT_FOLDER` | Input folder. | `input` |
+| `-o OUTPUT_FOLDER`, `--output_folder OUTPUT_FOLDER` | Output folder. | `output` |
+| `-p PROJECT_FOLDER`, `--project_folder PROJECT_FOLDER` | Project folder. | Current directory |
+| `-g GFF_FILE`, `--gff_file GFF_FILE` | GFF file containing epigenetic predictions. If omitted, the program searches for bin-specific GFF files. | Empty |
+| `-m MOTIFS`, `--motifs MOTIFS` | Semicolon-separated motif definitions, for example `GATC,2,-2; CCWGG,2,-2`. | — |
+| `--output_graph_format FORMAT` | Output format: `SVG`, `HTML`, `PDF`, `EPS`, `JPG`, `JPEG`, `TIF`, `TIFF`, `PNG`, or `BMP`. | `SVG` |
+| `-u {keep,split}`, `--unresolved_contigs {keep,split}` | Keep or split unresolved contigs with statistically insignificant methylation patterns. | `keep` |
+| `--filter_chimeric_contigs VALUE` | Filter contigs with a non-random distribution of modified sites. Accepts `Yes`, `No`, or a p-value satisfying `0 < p <= 0.05`. | `No` |
+| `-c {Y,y,N,n}`, `--circular_graph {Y,y,N,n}` | Produce a circular graph. | `Y` |
+| `--dpi DPI` | Output image resolution in dots per inch. | `600` |
+| `--mqs MQS` | Minimum methylation quality score. | `20` |
+| `-l LENGTH`, `--sliding_window_length LENGTH` | Sliding-window length. | `2000` |
+| `-w STEP`, `--sliding_window_step STEP` | Sliding-window step. | `500` |
+| `--file_name_separator SEPARATOR` | Separator used to select the basename as the first part of a filename. | Empty |
+| `-s {Y,N,y,n}`, `--save_graphs {Y,N,y,n}` | Save generated graphs. | `Y` |
+
+## Methylation pattern
+
+The `methylation-pattern` command processes GFF files generated by `ipdSummary`, produces graphical representations, and performs statistical analysis of the distribution of epigenetically modified bases.
+
+### Help
+
+```bash
+python3 swmm.py methylation-pattern --help
+```
+
+### General usage
+
+```bash
+python run.py [arguments]
+python run.py -h
+python run.py --help
+python run.py -v
+python run.py --version
+```
+
+### Example
+
+```bash
+python program.py \
+    -i input.gff \
+    -g genome.gbk \
+    -d example \
+    -mm Y \
+    -w GATC,2,-2 \
+    -p 100 \
+    -sp Y
+```
+
+This example:
+
+1. Reads `input.gff` and `genome.gbk` from `./input/example`.
+2. Writes graphical and text output to `./output/example`.
+3. Searches for the motif `GATC,2,-2`.
+4. Treats the second nucleotide from the left on the direct strand and the second nucleotide from the right on the reverse-complement strand as modified positions.
+5. Sets the promoter length to `100` bp.
+6. Enables circular-map visualization and motif-distribution statistics.
+
+### General settings
+
+| Option | Description | Default |
+| --- | --- | --- |
+| `-d FOLDER`, `--project_directory FOLDER` | Project subfolder. | Empty |
+| `-i FILE`, `--input_GFF FILE` | Input GFF filename. Required. | Empty |
+| `-g FILE`, `--input_GBK FILE` | Input GenBank filename. Required. | Empty |
+| `-m FILE`, `--filter_file FILE` | File defining regions to filter. | Empty |
+| `-ft NAME`, `--generic_file_name NAME` | Generic output filename. | Empty |
+| `-ogf FORMAT`, `--output_graph_format FORMAT` | Output format: `SVG`, `HTML`, `PDF`, `EPS`, `JPG`, `JPEG`, `TIF`, `TIFF`, `PNG`, or `BMP`. | `HTML` |
+| `-dpi DPI`, `--dpi DPI` | Raster-image resolution from 100 to 1200 dpi. | `300` |
+| `-p LENGTH`, `--promoter_length LENGTH` | Promoter-region length. | `75` |
+| `-r NUMBER`, `--maximum_sites NUMBER` | Maximum number of sites to verify. Use `0` to skip checking. | `10000` |
+| `-n NUMBER`, `--blast_context_mismatch NUMBER` | Allowed number of context mismatches. | `2` |
+| `-z Yes/No`, `--blast_motif_mismatch Yes/No` | Allow motif mismatches. | `Yes` |
+| `-u FOLDER`, `--input_folder FOLDER` | Input folder. | `input` |
+| `-o FOLDER`, `--output_folder FOLDER` | Output folder. | `output` |
+| `-x FOLDER` | Executable folder. | `./lib/bin` |
+| `-tmp FOLDER` | Temporary folder. | `./lib/bin/tmp` |
+
+### Circular-map settings
+
+| Option | Description | Default |
+| --- | --- | --- |
+| `-mm Y/N`, `--circular_map Y/N` | Generate a circular plot. | `Y` |
+| `-w MOTIF`, `--cmap_motif MOTIF` | Motif definition, for example `GATC,2,-2`. | — |
+| `-s MODE`, `--sites_or_motifs MODE` | Search for sites or motifs. Accepted values include `sites`, `motifs`, `S`, and `M`. | `sites` |
+| `-f M/U`, `--modified_or_unmodified M/U` | Display modified or unmodified motifs. | `M` |
+| `-wl LENGTH`, `--window_length LENGTH` | Sliding-window length. | `8000` |
+| `-ws STEP`, `--window_step STEP` | Sliding-window step. | `2000` |
+| `-c SCORE`, `--cmap_score_cutoff SCORE` | Circular-plot score cutoff. | `21` |
+| `-cmt TITLE`, `--cmap_graph_title TITLE` | Circular-map graph title. | Empty |
+
+### Dot-plot settings
+
+| Option | Description | Default |
+| --- | --- | --- |
+| `-dp Y/N`, `--dotplot Y/N` | Generate a dot plot. | `N` |
+| `-dpn BASES`, `--nucleotides BASES` | Nucleotides to display: `A`, `C`, `G`, `T`, or an empty value. | `A,C` |
+| `-dpm TYPES`, `--methylation_types TYPES` | Methylation types to display, such as `m6A` or `m4C`. | Empty |
+| `-dpf MOTIFS`, `--dotplot_motifs MOTIFS` | Motifs to include or exclude, for example `GATC,2,-2; -CRGKGATC,1,6,-2`. | — |
+| `-dpc SCORE`, `--dotplot_score_cutoff SCORE` | Dot-plot score cutoff. | `21` |
+| `-dpw VALUE`, `--maximum_coverage VALUE` | Maximum coverage on the x-axis. Use `0` for automatic scaling. | `0` |
+| `-dps VALUE`, `--maximum_score VALUE` | Maximum score on the y-axis. Use `0` for automatic scaling. | `0` |
+| `-dpt TITLE`, `--dp_graph_title TITLE` | Dot-plot graph title. | Empty |
+
+### Statistics settings
+
+| Option | Description | Default |
+| --- | --- | --- |
+| `-sp Y/N`, `--statplot Y/N` | Generate a statistics panel. | `Y` |
+| `-tsk TASKS`, `--tasks TASKS` | Statistical tasks, such as `gc`, `gcs`, and `mge`. | `gc,gcs` |
+| `-std MODE`, `--strand MODE` | Exclude the `leading` or `lagging` strand, or use `off` to disable strand exclusion. | `off` |
+| `-spt TITLE`, `--sp_graph_title TITLE` | Statistical-panel graph title. | Empty |
+
+## Contact
+
+For further information, refer to the project documentation or contact:
+
+**Oleg Reva**  
+University of Pretoria  
+Email: `oleg.reva@up.ac.za`

@@ -299,7 +299,7 @@ class Interface:
             if self.options['-f'] == "M":
                 find_modified_sites = True
             # Create a motif object
-            print("main:302", motif)
+            # print("main:302", motif)
             oMotifObj = motifs.Motif(reference=reference, binpath=binpath, tmppath=tmppath, motif=motif,
                 word=word, motifs_or_sites=motifs_or_sites, modbase_location=direct_locations, reverse_modbase_location=reverse_locations,
                 score_cutoff=score_cutoff, promoter_length=promoter_length, context_mismatches=context_mismatches, strand=self.strand,

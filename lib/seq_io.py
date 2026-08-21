@@ -170,6 +170,8 @@ class IO:
             
         oParser = Parser()
         oSeq, contigs = oParser.parse(path, seq_format=seq_format, concatenate=concatenate)
+        if isinstance(oSeq, tuple):
+            oSeq = oSeq[0]
         return oSeq, contigs
     
     def read_seq(self,path,seq_format="fasta",reverse_complement=False):
@@ -700,7 +702,7 @@ class SeqRecord:
         return len(self.Seq)
         
     def __str__(self):
-        return self.Seq
+        return str(self.Seq)
         
     def __getitem__(self,index):
         if isinstance(index, slice):
@@ -819,7 +821,10 @@ class GBF(container.Collection):
     def __init__(self,title="",spacer_length=50):
         container.Collection.__init__(self,title)
         self.description = self.title
+        self.accession = ""
         self.GBK = None
+        self.Seq = self.seq = ""
+        self.features = []
         self.spacer = "N" * spacer_length
         
     def __add__(self,other):
@@ -841,12 +846,23 @@ class GBF(container.Collection):
             return " ".join([f"{nuc} {self.GBK.Seq.base_count(nuc)}" for nuc in nucleotides])
         return "\n".join([" ".join([f"{nuc} {oGBK.Seq.base_count(nuc)}" for nuc in nucleotides]) for oGBK in self])
                                     
-    def concatenate(self):
+    def concatenate(self, spacer_length: int = 0):
         # Concatenate sequences with self.spacer N's separators
         contigs = []    # contigs = [feature(location.start, location.end, qualifiers['name']), ...]
+        
+        try:
+            spacer_length = int(spacer_length)
+        except:
+            spacer_length = None
+            
+        if spacer_length is None or spacer_length == 0:
+            spacer = self.spacer 
+        else:
+            spacer = "N" * spacer_length
+            
         if len(self) > 1:
             sequences = [str(oGBK.Seq) for oGBK in self]
-            concatenated_sequence = self.spacer.join(sequences)
+            concatenated_sequence = spacer.join(sequences)
             features = []
             contig_start = 0
             contig_counter = 1
@@ -865,7 +881,9 @@ class GBF(container.Collection):
         elif len(self) == 1:
             self.GBK = self[0]
             contigs = [Feature("contig",1,[f"1..{len(self.GBK.seq)}"])]
-        
+        self.features = self.GBK.features
+        self.Seq = self.seq = self.GBK.Seq
+        self.accession = self.GBK.accession
         return contigs
             
     def get_concatenated(self):

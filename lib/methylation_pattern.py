@@ -1,9 +1,10 @@
 import sys, os
 path = os.path.join(os.getcwd(),"lib")
-import main, tools, cui
+import tools, cui
+import MP_main as main
 
-__version__ = version = "3.2.7"
-date_of_creation = "05/05/2026"
+__version__ = version = "3.2.8"
+date_of_creation = "21/08/2026"
 
 def show_help():
     with open(os.path.join(path,"help")) as f:

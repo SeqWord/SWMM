@@ -648,7 +648,7 @@ class Validator:
                 },
                # Circular map settings
                "--circular_map": {
-                   "-mm":"N",           # Create dot-plot graph
+                   "-mm":"Y",           # Create dot-plot graph
                    "-w":"",             # motif
                    "-f":"M",            # modified/unmodified M | U
                    "-s":"sites",        # sites/motifs S | M
@@ -670,7 +670,7 @@ class Validator:
                },
                # Statistics settings
                "--statplot": {
-                   "-sp":"N",           # Create statistics panel
+                   "-sp":"Y",           # Create statistics panel
                    "-tsk":"gc, gcs",    # comma-separated tsks like gc, gcs, mge
                    "-spt":"",           # Statistical plot graph title
                 },

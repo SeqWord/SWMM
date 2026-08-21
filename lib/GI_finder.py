@@ -140,7 +140,7 @@ class Main:
             genome_item = filelist[i]
             if isinstance(genome_item, str):    # filename
                 fname = genome_item
-                genome = self.oIO.get_SeqDataset(fname)
+                genome = self.IO.get_SeqDataset(fname)
             else:
                 genome = genome_item
                 fname = genome.get_input_file_name()

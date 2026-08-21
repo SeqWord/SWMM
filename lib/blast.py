@@ -93,21 +93,41 @@ class BLAST(container):
         if not self.query or not self.sbjct:
             print()
             print("Either query %s or subject %s are wrong!" % (self.query,self.sbjct))
-        query = os.path.join(self.source_path,self.query)
-        sbjct = os.path.join(self.path,self.sbjct)
+
+        query = os.path.join(self.source_path, self.query)
+        sbjct = os.path.join(self.path, self.sbjct)
+        
         if sys.platform == "win32":
             if program == "formatdb":
-                self.cline = f"{os.path.join(self.path, 'formatdb')} -i {query} -p {flg_prot} -n {sbjct}"
+                self.cline = [
+                    os.path.join(self.path, "blastall.exe"),
+                    "-p", algorithm,
+                    "-i", query,
+                    "-d", sbjct,
+                    "-G", "6",
+                    "-E", "2",
+                    "-F", "F",
+                    "-q", "-2",
+                    "-r", "1",
+                    "-e", "1.0",
+                ]
+            
+        
             elif program == "blast":
                 default = "-G 6 -E 2 -F F -q -2 -r 1 -e 1.0"
-                self.cline = f"{os.path.join(self.path, 'blastall')} -p {algorithm} -i {query} -d {sbjct} {default}"
-        elif sys.platform == "linux2":
-            if program == "formatdb":
-                self.cline = f"{os.path.join(self.path, 'makeblastdb')} -in {query} -dbtype {dbtype} -out {self.sbjct}"
-            elif program == "blast":
-                default = "-gapopen 6 -gapextend 2 -evalue 1.0 -dust no -soft_masking false"
-                self.cline = f"{os.path.join(self.path, algorithm)} -query {query} -db {sbjct} {default}"
-                
+                self.cline = [
+                    os.path.join(self.path, "blastall.exe"),
+                    "-p", algorithm,
+                    "-i", query,
+                    "-d", sbjct,
+                    "-G", "6",
+                    "-E", "2",
+                    "-F", "F",
+                    "-q", "-2",
+                    "-r", "1",
+                    "-e", "1.0",
+                ]
+                    
     def execute(self,query="",sbjct="",print_output=False):
         self.remove_all()
         self.query = query
@@ -131,9 +151,12 @@ class BLAST(container):
         self.process(self.cline)
     
     def process(self,cline,flg_wait=False):
-        process = subprocess.Popen(cline,stdin=subprocess.PIPE,
+        process = subprocess.Popen(
+            cline,
+            stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
-            shell=(sys.platform!="win32"))
+            stderr=subprocess.PIPE,
+            shell=False,)
         if flg_wait:
             process.wait()
         process.stdin.close()

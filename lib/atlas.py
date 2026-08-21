@@ -46,7 +46,7 @@ class Main:
         # get file list
         seqlist = None
         if isinstance(self.seqfile, str):
-            genome = self.oIO.get_SeqDataset(seq_path)
+            genome = self.oIO.get_SeqDataset(self.seqfile)
         else:
             genome = self.seqfile
             

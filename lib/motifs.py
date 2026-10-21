@@ -5,9 +5,24 @@ import blast, seq_io, tools, progressbar
 
 ##############################################################################################################
 class Motif:
-    def __init__(self,reference,binpath,tmppath,word="",motif="",motifs_or_sites='sites',modbase_location='0',reverse_modbase_location='0',
-                score_cutoff=21,promoter_length=75,context_mismatches=0,motif_mismatch="No",filtered_loci=[],modified_or_unmodified_sites='M',
-                strand=0, max_sites_for_verification=3000):
+    def __init__(self,
+                reference,
+                binpath,
+                tmppath,word="",
+                motif="",
+                motifs_or_sites='sites',
+                modbase_location='0',
+                reverse_modbase_location='0',
+                score_cutoff=21,
+                promoter_length=75,
+                context_mismatches=0,
+                motif_mismatch="No",
+                filtered_loci=[],
+                modified_or_unmodified_sites='M',
+                strand=0, 
+                max_sites_for_verification=3000,
+                contigs=[], # List of BioPython features or analogs representing contigs
+            ):
         self.oIO = seq_io.IO()
         self.flg_show_modified_sites = True if modified_or_unmodified_sites == "M" else False
         self.filtered_loci = filtered_loci
@@ -20,7 +35,7 @@ class Motif:
         self.source_path = tmppath
         
         self.word = word
-        self.motif=motif
+        self.motif = motif
         self.search_mode = motifs_or_sites
         self.modbase_location = str(modbase_location)
         self.reverse_modbase_location = str(reverse_modbase_location)
@@ -53,6 +68,7 @@ class Motif:
         self.num_found_motifs = 0           # Number of found motifs
         self.num_overlapped_motifs = 0      # Number of overlapped motifs sharing the same modified site
         self.statistics = []                # Programrun statistics
+        self.contigs = contigs              # List of BioPython features or analogs representing contigs
         self.table_titles = ['Motif','Strand','Location','Site','Match','Description','Site location relative to TSC','Annotation']
         self.success = False
         
@@ -138,6 +154,45 @@ class Motif:
         if self.reverse_modbase_location != "0":
             return "%s and %s" % (self.modbase_location,self.reverse_modbase_location)
         return str(self.modbase_location)
+        
+    def get_contig_statistics(self):
+        def select_contig_loci(contig_start, contig_end, loci):
+            return [locus for locus in loci if 
+                contig_start <= int(locus[0]) <= contig_end and 
+                contig_start <= int(locus[1]) <= contig_end
+                ]
+            
+        def select_contig_modified_motifs(contig_start, contig_end, items):
+            return [item for item in items if 
+                contig_start <= int(item['Site']) <= contig_end 
+                ]
+            
+        motif_statistics = []
+        for contig in self.contigs:
+            # Create motif record template
+            motif_stat = {'motif':self.motif, 'contig':copy.deepcopy(contig), 'N':0, 'M':0, 'fraction':0.0, 'coverage':[]}
+            # Calculate the expected number of methylated sites
+            REF_loci = select_contig_loci(int(contig.location.start), int(contig.location.end), self.filtered_loci_in_refseq)
+            # Number of found motifs 'expectation'
+            motif_stat['N'] = len(REF_loci)
+            
+            # Calculate number of observed methylated sites
+            for modified_loci_in_GFF in self.modified_loci_in_GFF:
+                MOD_sites = select_contig_modified_motifs(int(contig.location.start), int(contig.location.end), modified_loci_in_GFF)
+                motif_stat['M'] += len(MOD_sites)
+                motif_stat['coverage'].append(sum([int(site['Coverage']) for site in MOD_sites]) / len(MOD_sites) if len(MOD_sites) else 0.0)
+                
+            # Calculate methylation fraction
+            motif_stat['fraction'] = motif_stat['M'] / motif_stat['N'] if motif_stat['N'] else 0.0
+            # Cover list of coverage values into coverage average
+            motif_stat['coverage'] = int(sum(motif_stat['coverage']) / len(motif_stat['coverage']) if len(motif_stat['coverage']) else 0)
+            
+            # Add motif methylation statistics to contig qualifier
+            motif_statistics.append(motif_stat)
+        
+        # Sort contigs
+        motif_statistics.sort(key=lambda item: int(item['contig'].location.start))
+        return motif_statistics
         
     def tostring(self, text_to_insert=""):
         # Final modifications to the output
@@ -288,6 +343,11 @@ class Motif:
     # Create a dictionary object containing all information about the modified site
     def get_site(self, entry, length, k, promoter, genes, complement_site, motif="", 
         strand_adjustment=True, flg_palindrom = False, relative_positions=True, echo=False):
+        '''
+        entry = {'genome': '598_chr', 'method': 'kinModCall', 'modtype': 'm6A', 'start': '2399', 'end': '2399', 
+        'score': '499', 'strand': '+', 'para': '.', 'data': {'coverage': '394', 'context': 'ATTATGTCTGACAATGAAGAAGACATTGATATCTTCTTTGC', 
+        'IPDRatio': '4.94', 'identificationQv': '477'}, 'nucleotide': 'A'}
+        '''               
                     
         cds = []
 
@@ -380,6 +440,7 @@ class Motif:
         oSite['Motif strand'] = 'REV' if motif_strand_location == -1 else 'DIR'
         oSite['Absolute point'] = k
         oSite['Base'] = base
+        oSite['Coverage'] = coverage
         return oSite
                 
     # Create a dictionary object containing all information about the unmodified site
@@ -812,15 +873,6 @@ class Motif:
             bar.stop()
             round_counter += 1
 
-            # Check correspondance of the found and the expected bases
-            '''
-            if point:
-                for site in ls_sites[-1]:
-                    if point not in expected_bases:
-                        print(f"motifs:832. Found base: {site['Base']}, kye {point} is not found among expected bases {expected_bases}!") 
-                    elif expected_bases[point] != site['Base']:
-                        print(f"motifs:834. Found base {site['Base']} does not correspond to the expected base {expected_bases[point]} in motif {site['Motif']}.")
-            '''
             # Record found modified sites 
             self.modified_loci_in_GFF.append([site for site in ls_sites[-1]])
             

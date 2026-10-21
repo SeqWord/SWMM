@@ -45,9 +45,9 @@ class IO:
             if data_format.upper()=="BINARY":
                 return self.open_binary_file(path,dbkey,splkey)
             if data_format.upper() in ("FASTA","FA","FST","FNA"):
-                return self.parse_seq(path,seq_format="fasta",reverse_complement=reverse_complement,concatenate=concatenate,reverse_contigs=reverse_contigs)
+                return self.parse_seq(path,seq_format="fasta",reverse_complement=reverse_complement,concatenate=concatenate)
             if data_format.upper() in ("GENBANK","GBK","GB"):
-                return self.parse_seq(path,seq_format="genbank",reverse_complement=reverse_complement,concatenate=concatenate,reverse_contigs=reverse_contigs)
+                return self.parse_seq(path,seq_format="genbank",reverse_complement=reverse_complement,concatenate=concatenate)
             if data_format.upper()=="GFF":
                 return self.readGFF(path)
         
@@ -164,12 +164,12 @@ class IO:
         return oGFF
     
     # Working with sequence files in fasta and genbank formats
-    def parse_seq(self, path, seq_format="", concatenate=True):
+    def parse_seq(self, path, seq_format="", concatenate=True, reverse_complement=False):
         if not seq_format:
             raise ValueError("ERROR: sequence format 'fasta' or 'genbank' must be specified!")
             
         oParser = Parser()
-        oSeq, contigs = oParser.parse(path, seq_format=seq_format, concatenate=concatenate)
+        oSeq, contigs = oParser.parse(path, seq_format=seq_format, concatenate=concatenate, reverse_complement=reverse_complement)
         if isinstance(oSeq, tuple):
             oSeq = oSeq[0]
         return oSeq, contigs
@@ -243,13 +243,13 @@ class Parser:
         self.seq_format = seq_format
     
     # Interface functions read and parse to accept user's requests and identify data type
-    def parse(self,path="",seq_format="",concatenate=True):  # Seq format can be predefined by users, or identified by file extension
+    def parse(self,path="",seq_format="",concatenate=True,reverse_complement=False):  # Seq format can be predefined by users, or identified by file extension
         path,seq_format = self._check_path_format(path,seq_format)
         contigs = []
         if seq_format.upper() == 'GENBANK':
-            oObj = self._parse_genbank(path, concatenate)
+            oObj = self._parse_genbank(path, concatenate, reverse_complement=reverse_complement)
         elif seq_format.upper() == 'FASTA':
-            oObj, contigs = self._parse_fasta(path, concatenate)
+            oObj, contigs = self._parse_fasta(path, concatenate, reverse_complement=reverse_complement)
         elif seq_format.upper() == 'GFF':
             return self._parse_gff(path)
         else:
@@ -311,7 +311,7 @@ class Parser:
             """
         
             if qualifiers:
-                qualifiers = dict(zip(list(qualifiers.kyes()), [[v] for v in list(qualifiers.values())]))
+                qualifiers = dict(zip(list(qualifiers.keys()), [[v] for v in list(qualifiers.values())]))
         
             if not isinstance(start, int) or not isinstance(end, int):
                 raise TypeError("start and end must be integers")
@@ -413,7 +413,7 @@ class Parser:
             sys.exit(f"Unknown molecular file type {moltype}!")
         
     # FASTA format parser
-    def _parse_fasta(self, path, concatenate=True, spacer_length=50):
+    def _parse_fasta(self, path, concatenate=True, spacer_length=50, reverse_complement=False): # reverse_complement is out of use in this version
         # Define the path to fasta file
         fasta_file = path
         current_sequence = ""
@@ -473,7 +473,7 @@ class Parser:
         return oFASTA, []
     
     # GenBank format parser
-    def _parse_genbank(self, path, concatenate=True, spacer_length=50):
+    def _parse_genbank(self, path, concatenate=True, spacer_length=50, reverse_complement=False): # reverse_complement is out of use in this version
         # Define the path to GenBank file
         genbank_file = path
         
@@ -1311,7 +1311,7 @@ class SeqDataset:
         contigs += [feature for feature in oGBK.features if feature.type=="contig"]
         if len(contigs) > 1:
             # Sort contigs and remove doublicates
-            contigs.sort(key = lambda contig: contig.start.location)
+            contigs.sort(key = lambda contig: contig.location.start)
             for i in range(len(contigs), 0, -1):
                 if contigs[i].location.start == contigs[i-1].location.start and contigs[i].location.end == contigs[i-1].location.end:
                     del contigs[i]
@@ -1415,9 +1415,16 @@ class SeqDataset:
             return self.contigs
         return [f"{contig.location.start}..{contig.location.end}" for contig in self.contigs]
         
-    def get_contig_titles(self):
+    def get_contig_titles(self, flg_with_locations=False):
         if not self.contigs:
             return []
+        if flg_with_locations:
+            contig_titles = []
+            for i in range(len(self.contigs)):
+                title = self.contigs[i].qualifiers['name'][0] if 'name' in self.contigs[i].qualifiers else f"contig_{i + 1}"
+                location = f"{self.contigs[i].location.start}..{self.contigs[i].location.end}"
+                contig_titles.append(f"{title} <{location}>")
+            return contig_titles
         return [self.contigs[i].qualifiers['name'][0] if 'name' in self.contigs[i].qualifiers else f"contig_{i + 1}" for i in range(len(self.contigs))]
         
     def get_input_path(self):

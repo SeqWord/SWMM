@@ -1,6 +1,7 @@
-from functools import reduce
-import os, string, random, math, copy, re
+import sys, os, random, string, math, copy, re
 import numpy as np
+from scipy.cluster.hierarchy import linkage, fcluster
+from scipy.spatial.distance import squareform
 
 nuc_table = {
     "A":"A",
@@ -120,7 +121,7 @@ def inlist_motifs(motif,flg_reverse_complement = False):
             if not ls:
                 ls = motif[p+1:s].split(",")
             else:
-                ls = reduce(lambda ls1,ls2: ls1+ls2, list(map(lambda l: list(map(lambda w: w+l, ls)), motif[p+1:s].split(","))))
+                ls = [w + l for l in motif[p+1:s].split(",") for w in ls]
             p = s+1
         else:
             if not ls:
@@ -1280,7 +1281,828 @@ def match(rec, reg_motif, n, motif_template_length):
 
     # Match the fragment against the motif regex
     return bool(reg_motif.match(context_fragment))
-                    
+
+# Methylation classificator
+def classify_methylation_contigs(
+    dataset,
+    min_motifs=20,              # Minimal number of modified sites per contig
+    min_coverage=20,            # Minimal average coverage at modified sites
+    alpha=0.05,                 # alpha cutoff for modified motif distribution across motifs 
+    max_group_difference=0.16,  # Maximum difference between methylation fractions within a group
+):
+    """
+    Test methylation uniformity across contigs and identify
+    groups with different methylation fractions.
+
+    Clustering is based on normalized methylation fractions
+    using complete-linkage hierarchical clustering.
+
+    Parameters
+    ----------
+    dataset : dict
+        Dictionary containing the following fields:
+
+        motif : str
+            Methylation motif identifier.
+
+        fractions : list[float]
+            Fractions of methylated motifs per contig.
+
+        expected : list[int]
+            Total number of motif occurrences per contig.
+
+        observed : list[int]
+            Number of methylated motif occurrences per contig.
+
+        coverage : list[float]
+            Average sequencing coverage per contig.
+
+        contig locations : list[str]
+            Contig identifiers or locations.
+
+    min_motifs : int, default=20
+        Minimum number of motif occurrences required for
+        statistical analysis.
+
+    min_coverage : float, default=20
+        Minimum average sequencing coverage.
+
+    alpha : float, default=0.05
+        Significance threshold for the global uniformity test.
+
+    max_group_difference : float, default=0.26
+        Maximum difference between methylation fractions
+        within a group.
+
+        For example, 0.26 permits contigs with methylation
+        fractions differing by up to 26 percentage points
+        to belong to the same group.
+
+    Returns
+    -------
+    dict
+        Updated copy of the input dictionary.
+
+        positive : list[str]
+            Contigs belonging to the most methylated group.
+
+        negative : list[str]
+            Contigs belonging to the least methylated group.
+
+        median : list[str]
+            Contigs belonging to intermediate groups.
+            If no groups are identified, contains all
+            statistically eligible contigs.
+
+        uncertain : list[str]
+            Contigs excluded because of insufficient motif
+            counts or sequencing coverage.
+
+        groups : list[list[str]]
+            Groups ordered from highest to lowest methylation.
+
+            Empty when no distinct groups are identified.
+
+        grouped : bool
+            True if two or more groups are identified.
+
+        p : float or None
+            P-value of the global methylation homogeneity test ().
+            A small value of 'uniform p' indicates statistically 
+            significant evidence of a nonuniform (biased) distribution 
+            of methylated motifs across contigs.
+
+            None if fewer than two eligible contigs are available.
+
+    Notes
+    -----
+    1. Clustering uses normalized methylation fractions.
+
+    2. The global uniformity test uses a binomial
+       likelihood-ratio statistic (G-test).
+
+    3. Complete linkage ensures that the maximum difference
+       between fractions within each group does not exceed
+       max_group_difference.
+
+    4. The number of groups is determined automatically.
+
+    5. The original 'distribution' and 'filtered_contigs'
+       fields are preserved.
+
+    6. The binomial test assumes independent motif observations.
+       Its p-values may be optimistic if methylation states
+       are correlated within contigs.
+    """
+
+    # -------------------------------------------------------
+    # 1. Copy input dictionary
+    # -------------------------------------------------------
+    try:
+        from scipy.cluster.hierarchy import linkage, fcluster
+        from scipy.spatial.distance import pdist
+        from scipy.special import xlogy
+        from scipy.stats import chi2
+    except:
+        sys.exit("ERROR: Necessary module scipy is not installed!")
+
+    # -------------------------------------------------------
+    # 1. Copy input dictionary
+    # -------------------------------------------------------
+
+    result = copy.deepcopy(dataset)
+
+    locations = result["contig locations"]
+
+    expected = np.asarray(
+        result["expected"],
+        dtype=int
+    )
+
+    observed = np.asarray(
+        result["observed"],
+        dtype=int
+    )
+
+    coverage = np.asarray(
+        result["coverage"],
+        dtype=float
+    )
+
+    fractions = np.asarray(
+        result["fractions"],
+        dtype=float
+    )
+
+    N = len(locations)
+
+    # -------------------------------------------------------
+    # 2. Validate input
+    # -------------------------------------------------------
+
+    if not all(
+        len(x) == N
+        for x in (
+            expected,
+            observed,
+            coverage,
+            fractions
+        )
+    ):
+        raise ValueError(
+            "Input arrays have different lengths."
+        )
+
+    if np.any(expected < 0):
+        raise ValueError(
+            "Expected motif counts cannot be negative."
+        )
+
+    if np.any(observed < 0):
+        raise ValueError(
+            "Observed motif counts cannot be negative."
+        )
+
+    if np.any(observed > expected):
+        raise ValueError(
+            "Observed motif counts exceed expected counts."
+        )
+
+    if not 0 < alpha < 1:
+        raise ValueError(
+            "alpha must be between 0 and 1."
+        )
+
+    if not 0 <= max_group_difference <= 1:
+        raise ValueError(
+            "max_group_difference must be between 0 and 1."
+        )
+
+    if min_motifs < 1:
+        raise ValueError(
+            "min_motifs must be at least 1."
+        )
+
+    if min_coverage < 0:
+        raise ValueError(
+            "min_coverage cannot be negative."
+        )
+
+    valid_fractions = np.isfinite(fractions)
+
+    if np.any(
+        (fractions[valid_fractions] < 0)
+        | (fractions[valid_fractions] > 1)
+    ):
+        raise ValueError(
+            "Methylation fractions must be between 0 and 1."
+        )
+
+    # -------------------------------------------------------
+    # 3. Initialize output fields
+    # -------------------------------------------------------
+
+    result["positive"] = []
+    result["negative"] = []
+    result["median"] = []
+
+    result["groups"] = []
+    result["uncertain"] = []
+
+    result["grouped"] = False
+    result["p"] = None
+
+    # Preserve:
+    # result["distribution"]
+    # result["filtered_contigs"]
+
+    # -------------------------------------------------------
+    # 4. Identify statistically eligible contigs
+    # -------------------------------------------------------
+
+    reliable = (
+        (expected >= min_motifs)
+        & (coverage >= min_coverage)
+        & np.isfinite(coverage)
+        & np.isfinite(fractions)
+    )
+
+    result["uncertain"] = [
+        locations[i]
+        for i in range(N)
+        if not reliable[i]
+    ]
+
+    indices = np.where(reliable)[0]
+
+    # Fewer than two eligible contigs:
+    # statistical comparison is impossible.
+
+    if len(indices) < 2:
+
+        result["median"] = [
+            locations[i]
+            for i in indices
+        ]
+
+        return result
+
+    n = expected[indices]
+    k = observed[indices]
+
+    p = fractions[indices]
+
+    # -------------------------------------------------------
+    # 5. Binomial log-likelihood
+    # -------------------------------------------------------
+
+    def binomial_loglik(successes, totals):
+        """
+        Maximum binomial log-likelihood assuming a common
+        methylation probability.
+
+        Binomial coefficients are omitted because they
+        cancel in likelihood-ratio comparisons.
+        """
+
+        K = np.sum(successes)
+        T = np.sum(totals)
+
+        if T == 0:
+            return 0.0
+
+        probability = K / T
+
+        return float(
+            xlogy(K, probability)
+            + xlogy(T - K, 1.0 - probability)
+        )
+
+    # -------------------------------------------------------
+    # 6. Global test of methylation uniformity
+    # -------------------------------------------------------
+
+    # Null hypothesis:
+    # All contigs have the same methylation probability.
+
+    ll_uniform = binomial_loglik(k, n)
+
+    # Alternative hypothesis:
+    # Each contig has its own methylation probability.
+
+    ll_individual = sum(
+        binomial_loglik(
+            np.asarray([ki]),
+            np.asarray([ni])
+        )
+        for ki, ni in zip(k, n)
+    )
+
+    # Likelihood-ratio statistic.
+
+    statistic = max(
+        0.0,
+        2.0 * (ll_individual - ll_uniform)
+    )
+
+    degrees_of_freedom = len(indices) - 1
+
+    p_value = float(
+        chi2.sf(
+            statistic,
+            degrees_of_freedom
+        )
+    )
+
+    result["p"] = p_value
+
+    # -------------------------------------------------------
+    # 7. Uniform methylation
+    # -------------------------------------------------------
+
+    if p_value >= alpha:
+
+        result["median"] = [
+            locations[i]
+            for i in indices
+        ]
+
+        # No groups are created.
+        #
+        # positive = []
+        # negative = []
+        # groups = []
+        # grouped = False
+
+        return result
+
+    # -------------------------------------------------------
+    # 8. Hierarchical clustering
+    # -------------------------------------------------------
+
+    # Clustering uses normalized methylation fractions.
+    #
+    # Complete linkage ensures that the maximum pairwise
+    # difference within each group does not exceed the
+    # specified threshold.
+
+    distances = pdist(
+        p.reshape(-1, 1),
+        metric="euclidean"
+    )
+
+    hierarchy = linkage(
+        distances,
+        method="complete"
+    )
+
+    # Determine groups using the maximum allowed
+    # within-group methylation difference.
+
+    labels = fcluster(
+        hierarchy,
+        t=max_group_difference,
+        criterion="distance"
+    )
+
+    # -------------------------------------------------------
+    # 9. Construct groups
+    # -------------------------------------------------------
+
+    groups = []
+
+    for label in np.unique(labels):
+
+        mask = labels == label
+
+        group_indices = indices[mask]
+
+        # Calculate the overall methylation fraction
+        # for the group using exact motif counts.
+        #
+        # This is used only for ordering groups.
+        #
+        # Individual contig fractions were used
+        # for clustering.
+
+        group_expected = np.sum(
+            expected[group_indices]
+        )
+
+        group_observed = np.sum(
+            observed[group_indices]
+        )
+
+        group_fraction = (
+            group_observed / group_expected
+        )
+
+        # Preserve the original order of contigs
+        # within each group.
+
+        group_locations = [
+            locations[i]
+            for i in group_indices
+        ]
+
+        groups.append(
+            (
+                group_fraction,
+                group_locations
+            )
+        )
+
+    # -------------------------------------------------------
+    # 10. Sort groups by methylation fraction
+    # -------------------------------------------------------
+
+    # Highest methylation first.
+
+    groups.sort(
+        key=lambda x: x[0],
+        reverse=True
+    )
+
+    # -------------------------------------------------------
+    # 11. Handle a single group
+    # -------------------------------------------------------
+
+    if len(groups) == 1:
+
+        result["median"] = [groups[0][1]]
+
+        return result
+
+    # -------------------------------------------------------
+    # 12. Assign multiple groups
+    # -------------------------------------------------------
+
+    result["groups"] = [
+        group_locations
+        for _, group_locations in groups
+    ]
+
+    # Most methylated group.
+
+    result["positive"] = groups[0][1]
+
+    # Least methylated group.
+
+    result["negative"] = groups[-1][1]
+
+    # Intermediate groups.
+
+    if len(groups) > 2:
+        result["median"] = [[location for location in group_locations] for _, group_locations in groups[1:-1]]
+
+    result["grouped"] = True
+
+    return result
+
+'''
+group_collection example:
+{'motif': 'GATC,2,-2', 
+'positive': ['394288..480956'], 
+'negative': ['78928..238913'], 
+'median': [['238964..394237', '481007..617785'], ['0..78877', '836161..890835'],['617836..748889', '748940..836060']], 'filtered_contigs': [], 
+'uncertain': [], 
+'groups': [['394288..480956'], ['238964..394237', '481007..617785'], ['0..78877', '836161..890835'], ['617836..748889', '748940..836060'], ['78928..238913']], 
+'fractions': [0.4873323397913562, 0.0021164021164021165, 0.642781875658588, 0.9517730496453901, 0.7, 0.16166281755196305, 0.1735985533453888, 0.47708333333333336], 
+'expected': [671, 945, 949, 705, 740, 866, 553, 480], 
+'observed': [327, 2, 610, 671, 518, 140, 96, 229], 
+'coverage': [91, 130, 74, 68, 77, 70, 94, 88], 
+'contig locations': ['0..78877', '78928..238913', '238964..394237', '394288..480956', '481007..617785', '617836..748889', '748940..836060', '836161..890835'], 
+'grouped': True, 
+'p': 0.0, 
+'distribution': ''}
+'''
+def group_contigs(
+    contig_titles: list,
+    group_collection: list[dict],
+    unresolved_contigs: str = "keep",
+    consensus_threshold: float = 0.65,  # Minimum weighted agreement (0–1) for grouping contigs.
+                                        # Higher values produce more groups (stricter clustering).
+                                        # Lower values tolerate disagreements between motifs.
+    min_motif_weight: float = 0.1,      # Minimum weight assigned to an informative motif.
+                                        # Prevents motifs with weak statistical evidence
+                                        # from having negligible influence on consensus.
+    max_motif_weight: float = 1.0,      # Maximum weight assigned to an informative motif.
+                                        # Limits the influence of motifs with very small p-values.
+                                        # Prevents one motif from dominating the consensus.
+) -> list[list[str]]:
+    """
+    Create consensus contig groups from methylation motif partitions.
+
+    Parameters
+    ----------
+    contig_titles : list[str]
+        Contig identifiers in their original order.
+
+    group_collection : list[dict]
+        Collection of methylation motif dictionaries.
+
+        Each dictionary may contain:
+            motif
+            groups
+            grouped
+            p
+
+    unresolved_contigs : str, default="keep"
+        How to handle contigs without sufficient grouping
+        information.
+
+        "keep":
+            Place unresolved contigs into one group.
+
+        "split":
+            Place each unresolved contig into a separate group.
+
+    consensus_threshold : float, default=0.65
+        Minimum consensus similarity required for clustering.
+
+        Higher values produce more conservative grouping.
+        Lower values permit more disagreements between motifs.
+
+    min_motif_weight : float, default=0.1
+        Minimum statistical weight assigned to a motif.
+
+    max_motif_weight : float, default=1.0
+        Maximum statistical weight assigned to a motif.
+
+    Returns
+    -------
+    list[list[str]]
+        Consensus groups of contig identifiers.
+
+    Notes
+    -----
+    Motif groups are treated as categorical partitions.
+
+    Motif weights are based on statistical evidence of
+    nonuniform methylation.
+
+    Consensus clustering uses average linkage.
+
+    Groups are returned in the original contig order.
+    """
+
+    if unresolved_contigs not in ("keep", "split"):
+        raise ValueError(
+            "unresolved_contigs must be 'keep' or 'split'"
+        )
+
+    if not 0 <= consensus_threshold <= 1:
+        raise ValueError(
+            "consensus_threshold must be between 0 and 1"
+        )
+
+    titles = list(dict.fromkeys(contig_titles))
+
+    N = len(titles)
+
+    if N == 0:
+        return []
+
+    if N == 1:
+        return [titles]
+
+    title_to_index = {
+        title: i
+        for i, title in enumerate(titles)
+    }
+
+    # -------------------------------------------------------
+    # 1. Initialize consensus matrices
+    # -------------------------------------------------------
+
+    agreement = np.zeros(
+        (N, N),
+        dtype=float
+    )
+
+    evidence = np.zeros(
+        (N, N),
+        dtype=float
+    )
+
+    # -------------------------------------------------------
+    # 2. Process motif partitions
+    # -------------------------------------------------------
+
+    for record in group_collection:
+
+        motif_groups = record.get("groups", [])
+
+        if not motif_groups or len(motif_groups) < 2:
+            continue
+
+        if not record.get("grouped", True):
+            continue
+
+        # ---------------------------------------------------
+        # 2.1. Calculate statistical motif weight
+        # ---------------------------------------------------
+
+        p_value = record.get("p", None)
+
+        if p_value is None:
+            weight = min_motif_weight
+
+        else:
+            p_value = float(p_value)
+
+            if not np.isfinite(p_value):
+                continue
+
+            p_value = max(
+                p_value,
+                np.finfo(float).tiny
+            )
+
+            # Transform p-value into bounded evidence weight.
+            #
+            # p = 0.05 -> moderate weight
+            # p << 0.001 -> maximum weight
+
+            significance = -np.log10(p_value)
+
+            weight = significance / (
+                significance + 2.0
+            )
+
+            weight = np.clip(
+                weight,
+                min_motif_weight,
+                max_motif_weight
+            )
+
+        # ---------------------------------------------------
+        # 2.2. Convert motif groups into membership mapping
+        # ---------------------------------------------------
+
+        membership = {}
+
+        for group_id, group in enumerate(motif_groups):
+
+            for title in group:
+
+                if title in title_to_index:
+                    membership[title] = group_id
+
+        # Only contigs represented in this motif
+        # contribute evidence.
+
+        available_titles = list(membership)
+
+        # ---------------------------------------------------
+        # 2.3. Accumulate pairwise evidence
+        # ---------------------------------------------------
+
+        for i in range(len(available_titles)):
+
+            title_i = available_titles[i]
+            index_i = title_to_index[title_i]
+
+            for j in range(i + 1, len(available_titles)):
+
+                title_j = available_titles[j]
+                index_j = title_to_index[title_j]
+
+                evidence[index_i, index_j] += weight
+                evidence[index_j, index_i] += weight
+
+                if membership[title_i] == membership[title_j]:
+
+                    agreement[index_i, index_j] += weight
+                    agreement[index_j, index_i] += weight
+
+    # -------------------------------------------------------
+    # 3. Calculate consensus similarity
+    # -------------------------------------------------------
+
+    similarity = np.zeros(
+        (N, N),
+        dtype=float
+    )
+
+    np.divide(
+        agreement,
+        evidence,
+        out=similarity,
+        where=evidence > 0
+    )
+
+    np.fill_diagonal(similarity, 1.0)
+
+    # -------------------------------------------------------
+    # 4. Identify contigs with grouping evidence
+    # -------------------------------------------------------
+
+    informative = np.any(
+        evidence > 0,
+        axis=1
+    )
+
+    informative_indices = np.where(informative)[0]
+
+    unresolved_indices = np.where(~informative)[0]
+
+    # -------------------------------------------------------
+    # 5. Consensus clustering
+    # -------------------------------------------------------
+
+    groups = []
+
+    if len(informative_indices) >= 2:
+
+        sub_similarity = similarity[
+            np.ix_(
+                informative_indices,
+                informative_indices
+            )
+        ]
+
+        distances = 1.0 - sub_similarity
+
+        np.fill_diagonal(distances, 0.0)
+
+        condensed = squareform(
+            distances,
+            checks=False
+        )
+
+        hierarchy = linkage(
+            condensed,
+            method="average"
+        )
+
+        labels = fcluster(
+            hierarchy,
+            t=1.0 - consensus_threshold,
+            criterion="distance"
+        )
+
+        for label in np.unique(labels):
+
+            group_indices = informative_indices[
+                labels == label
+            ]
+
+            group = [
+                titles[i]
+                for i in group_indices
+            ]
+
+            groups.append(group)
+
+    elif len(informative_indices) == 1:
+
+        groups.append([
+            titles[informative_indices[0]]
+        ])
+
+    # -------------------------------------------------------
+    # 6. Handle unresolved contigs
+    # -------------------------------------------------------
+
+    if len(unresolved_indices) > 0:
+
+        if unresolved_contigs == "keep":
+
+            groups.append([
+                titles[i]
+                for i in unresolved_indices
+            ])
+
+        else:
+
+            for i in unresolved_indices:
+
+                groups.append([
+                    titles[i]
+                ])
+
+    # -------------------------------------------------------
+    # 7. Restore original contig order
+    # -------------------------------------------------------
+
+    position = {
+        title: i
+        for i, title in enumerate(titles)
+    }
+
+    for group in groups:
+        group.sort(key=lambda x: position[x])
+
+    groups.sort(
+        key=lambda group: min(
+            position[x]
+            for x in group
+        )
+    )
+
+    return groups
+
 ###############################################################################
 if __name__ == "__main__":
     print(inlist_motifs("CTRGAWA"))

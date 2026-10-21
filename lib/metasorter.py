@@ -24,92 +24,6 @@ class MetaSorter:
         records = [rec for rec in master_gff if rec.startswith(tuple(contigs))]
         return records
     
-    def group_contigs(self, contig_titles, group_collection, unresolved_contigs="keep"):
-        # If unresolved-contigs == 'keep', unmethylated contigs kept binned, if 'split', separated to individual bins 
-        if len(group_collection) == 0 and unresolved_contigs == "keep":
-            return [contig_titles]
-            
-        def split_overlapping_groups(raw_groups):
-            """Split partly overlapping lists into non-overlapping consecutive groups."""
-            title_to_mask = {}
-    
-            for i, group in enumerate(raw_groups):
-                for title in group:
-                    title_to_mask.setdefault(title, set()).add(i)
-    
-            result = []
-            current_group = []
-            current_mask = None
-    
-            for title in contig_titles:
-                if title not in title_to_mask:
-                    continue
-    
-                mask = frozenset(title_to_mask[title])
-    
-                if current_mask is None or mask != current_mask:
-                    if current_group:
-                        result.append(current_group)
-                    current_group = [title]
-                    current_mask = mask
-                else:
-                    current_group.append(title)
-    
-            if current_group:
-                result.append(current_group)
-    
-            return result
-    
-        groups = []
-        used = set()
-    
-        # 1. Positive groups
-        positive_raw = [
-            record.get("positive", [])
-            for record in group_collection
-            if record.get("positive")
-        ]
-    
-        positive_groups = split_overlapping_groups(positive_raw)
-        groups.extend(positive_groups)
-    
-        for group in positive_groups:
-            used.update(group)
-    
-        # 2. Negative groups, excluding positive titles
-        negative_raw = [
-            [title for title in record.get("negative", []) if title not in used]
-            for record in group_collection
-            if record.get("negative")
-        ]
-    
-        negative_groups = split_overlapping_groups([g for g in negative_raw if g])
-        groups.extend(negative_groups)
-    
-        for group in negative_groups:
-            used.update(group)
-    
-        # 3. Median titles, excluding positive and negative titles
-        median_titles = []
-    
-        for record in group_collection:
-            for title in record.get("median", []):
-                if title not in used and title not in median_titles:
-                    median_titles.append(title)
-    
-        if median_titles:
-            median_group = [title for title in contig_titles if title in median_titles]
-            groups.append(median_group)
-            used.update(median_group)
-    
-        # 4. Titles absent from all grouped categories
-        for title in contig_titles:
-            if title not in used:
-                groups.append([title])
-                used.add(title)
-    
-        return groups
-         
     def execute(self, args):       
         # Set runtime options
         options = cui.get_options()
@@ -136,6 +50,37 @@ class MetaSorter:
         if len(motifs) == 0:
             sys.exit("No motifs were specified!")
             
+        # -------------------------------------------------------
+        # Validate grouping parameters
+        # -------------------------------------------------------
+        
+        if not 0 < args.grouping_p_cutoff < 1:
+            sys.exit("ERROR: --grouping_p_cutoff must be between 0 and 1 (exclusive)!")
+        
+        if args.min_motifs < 1:
+            sys.exit("ERROR: --min_motifs must be a positive integer (>= 1)!")
+        
+        if args.min_coverage < 1:
+            sys.exit("ERROR: --min_coverage must be a positive integer (>= 1)!")
+        
+        if not 0 < args.alpha < 1:
+            sys.exit("ERROR: --alpha must be between 0 and 1 (exclusive)!")
+        
+        if not 0 <= args.max_group_difference <= 1:
+            sys.exit("ERROR: --max_group_difference must be between 0 and 1 (inclusive)!")
+        
+        if not 0 <= args.consensus_threshold <= 1:
+            sys.exit("ERROR: --consensus_threshold must be between 0 and 1 (inclusive)!")
+        
+        if not 0 <= args.min_motif_weight <= 1:
+            sys.exit("ERROR: --min_motif_weight must be between 0 and 1 (inclusive)!")
+        
+        if not 0 <= args.max_motif_weight <= 1:
+            sys.exit("ERROR: --max_motif_weight must be between 0 and 1 (inclusive)!")
+        
+        if args.min_motif_weight > args.max_motif_weight:
+            sys.exit("ERROR: --min_motif_weight cannot exceed --max_motif_weight!")
+                
         fasta_extensions = (".FA", "FASTA", ".FNA", ".FST")
         genbank_extensions = (".GB", ".GBK", ".GBF", ".GBFF")
         # Current version works only with FASTA files
@@ -159,7 +104,8 @@ class MetaSorter:
             # Parse sequence file
             genome = self.oIO.get_SeqDataset(seq_path, fname_separator = separator)
             contigs = genome.get_contigs()
-            contig_titles = genome.get_contig_locations()
+            contig_locations = genome.get_contig_locations()
+            contig_titles = genome.get_contig_titles(flg_with_locations=True)
                 
             if not genome or not contigs:
                 raise ValueError(f"File {seq_fname} has wrong format or corrupted!")
@@ -219,10 +165,18 @@ class MetaSorter:
     
                 for output in outputs:
                     # groups = {'motif':motif, 'positive':[], 'negative':[], 'median':[], 'filtered_contigs':[], 'grouped':False}
-                    groups = oMain.group_contigs(output=output, motif=motif, filter_contigs=filter_contigs)
+                    groups = oMain.group_contigs(output=output, 
+                        motif=motif, 
+                        p_cutoff=args.grouping_p_cutoff,                 # Cutoff for biased distribution within contigs
+                        min_motifs=args.min_motifs,                      # Minimal number of modified sites per contig
+                        min_coverage=args.min_coverage,                  # Minimal average coverage at modified sites
+                        alpha=args.alpha,                                # alpha cutoff for modified motif distribution across motifs 
+                        max_group_difference=args.max_group_difference,  # Minimal difference between groups in fractions of modified motifs
+                        filter_contigs=filter_contigs,
+                        )
                     filtered_contigs += groups['filtered_contigs']
         
-                    if groups['grouped'] == False:
+                    if groups['grouped'] is False:
                         continue
                     
                     # Append grouped contigs
@@ -234,49 +188,36 @@ class MetaSorter:
                         
                     # Save output
                     oMain.save_output(output, path=outpath)
-                    
+                '''
+                print("\nmetasorter:192")
+                print(groups)
+                print()
+                '''
                 # Clean TMP folder
                 oMain.clean_tmp_folder()
                 tools.msg("\tDone.")
-            ''' 
-            try:
-                for motif in motifs:
-                    options['-w'] = motif
-                    tools.msg(f"Searching for motif {motif} in files {gff_fname} and {seq_fname}...")
-                    # Run program
-    
-                    oMain = main.Interface(options, self.version, self.date_of_creation)
-                    outputs = oMain.execute(genome, contigs, GFF_list)
-                    
-                    if not outputs:
-                        continue
-        
-                    for output in outputs:
-                        # groups = {'motif':motif, 'positive':[], 'negative':[], 'median':[], 'filtered_contigs':[], 'grouped':False}
-                        groups = oMain.group_contigs(output=output, motif=motif, filter_contigs=filter_contigs)
-                        filtered_contigs += groups['filtered_contigs']
-            
-                        if groups['grouped'] == False:
-                            continue
-                        
-                        # Append grouped contigs
-                        group_collection.append(groups)
-                        
-                        # Remove graphs from outputs if not needed
-                        if args.save_graphs.upper() == "N" and 'svg' in output:
-                            output['svg'] = None
-                            
-                        # Save output
-                        oMain.save_output(output, path=outpath)
-                        
-                    # Clean TMP folder
-                    oMain.clean_tmp_folder()
-                    tools.msg("\tDone.")
-            except:
-                tools.msg("\tFailed!")
+
             '''
-            
-            grouped_contigs = self.group_contigs(contig_titles, group_collection, unresolved_contigs = args.unresolved_contigs)
+            print("metasorter:201", len(group_collection))
+            for group in group_collection:
+                print()
+                print(group)
+            print()
+            '''
+
+            grouped_contigs = tools.group_contigs(contig_locations, 
+                group_collection, 
+                unresolved_contigs = args.unresolved_contigs,
+                consensus_threshold = args.consensus_threshold, # Minimum weighted agreement (0–1) for grouping contigs.
+                                                                # Higher values produce more groups (stricter clustering).
+                                                                # Lower values tolerate disagreements between motifs.
+                min_motif_weight = args.min_motif_weight,       # Minimum weight assigned to an informative motif.
+                                                                # Prevents motifs with weak statistical evidence
+                                                                # from having negligible influence on consensus.
+                max_motif_weight = args.max_motif_weight,       # Maximum weight assigned to an informative motif.
+                                                                # Limits the influence of motifs with very small p-values.
+                                                                # Prevents one motif from dominating the consensus.
+                )
             if len(grouped_contigs) == 0:
                 tools.msg(f"Failed with {basename}!")
                 continue
@@ -311,4 +252,3 @@ class MetaSorter:
                     path = os.path.join(outpath, "filtered_contigs.txt"),
                     data_format = "text"
                 )
- 

@@ -10,7 +10,6 @@ class Interface:
         self.oValidator = cui.Validator()
         self.oIO = seq_io.IO()
         self.cwd = os.path.dirname(os.path.abspath(__file__))
-        #self.cwd = "."
         self.version = version
         self.date_of_creation = date_of_creation
             
@@ -27,15 +26,11 @@ class Interface:
             self.options.update(options)
             
             if not self.options['-x']:
-                #self.options['-x'] = os.path.join(self.cwd,"lib","bin")
                 self.options['-x'] = os.path.join(self.cwd,"bin")
                 
             if not self.options['-tmp']:
                 self.options['-tmp'] = os.path.join(self.options['-x'],"tmp")
-        '''        
-        self.input_folder = os.path.join(self.options['-u'], self.options['-d'])
-        self.output_folder = os.path.join(self.options['-o'], self.options['-d'])
-        '''
+
         self.input_folder = os.path.join(self.cwd, self.options['-u'], self.options['-d'])
         self.output_folder = os.path.join(self.cwd, self.options['-o'], self.options['-d'])
             
@@ -81,7 +76,6 @@ class Interface:
         if not valid:
             tools.msg("Impropper option setting!")
             return None, None
-
         # Set input folder
         self.input_folder = os.path.join(self.options['-u'],self.options['-d'])
 
@@ -101,11 +95,17 @@ class Interface:
 
         # Circular map
         if self.options['-mm'][0].upper() == "Y":
-            return self.create_circular_motif_map(GFF_list=copy.deepcopy(GFF_list), genome_list=[genome], filtered_loci_list=[filtered_loci])
+            return self.create_circular_motif_map(GFF_list=copy.deepcopy(GFF_list), 
+                genome_list=[genome], 
+                filtered_loci_list=[filtered_loci],
+                contigs=contigs)
 
         # Stand-alone statistics panel
         if self.options['-mm'][0].upper() == "N" and self.options['-dp'][0].upper() == "N" and self.options['-sp'][0].upper() == "Y":
-            return self.create_statplot(GFF_list=copy.deepcopy(GFF_list), genome_list=[genome], filtered_loci_list=[filtered_loci])
+            return self.create_statplot(GFF_list=copy.deepcopy(GFF_list), 
+                genome_list=[genome], 
+                filtered_loci_list=[filtered_loci],
+                contigs=contigs)
         
     def save_outputs(self, output_list, path = None):
         # Save output files
@@ -140,21 +140,19 @@ class Interface:
                 report_output_path = os.path.join(output_folder,output['report output file'])
                 self.oIO.save(output['report'],report_output_path,"text")
                     
-    def group_contigs(self, output, motif="", p_cutoff=0.05, filter_contigs=False):
+    def group_contigs(self, 
+            output, 
+            motif="", 
+            p_cutoff=0.05,              # Cutoff for biased distribution within contigs
+            min_motifs=20,              # Minimal number of modified sites per contig
+            min_coverage=20,            # Minimal average coverage at modified sites
+            alpha=0.05,                 # alpha cutoff for modified motif distribution across motifs 
+            max_group_difference=0.05,  # Maximum difference between methylation fractions within a group
+            filter_contigs=False
+        ):
+            
         if 'report' not in output:
             sys.exit("Wrong format of output. Key 'report' is expected!")
-            
-        def is_distribution_Biased(data, p_cutoff):
-            start = data.find("p-value") + 7
-            stop = data.find(";")
-            try:
-                p = abs(float(data[start:stop]))
-            except:
-                return False
-            
-            if p <= p_cutoff:
-                return True
-            return False
             
         def parse_line(line):
             parts = line.strip().split(" ")
@@ -174,8 +172,40 @@ class Interface:
                 return tools.chi2_biased_distribution(sites, p_cutoff)
             return tools.median_biased_distribution(sites)
         
-        # Group holder    
-        groups = {'motif':motif, 'positive':[], 'negative':[], 'median':[], "filtered_contigs":[], 'grouped':False, 'distribution':''}
+        # Group holder
+        contig_stats = output.get('contig statistics', [])
+    
+        groups = {
+            'motif': motif,
+            'positive': [],
+            'negative': [],
+            'median': [],
+            'filtered_contigs': [],
+            'uncertain': [],
+            'groups': [],
+            'fractions': [contig['fraction'] for contig in contig_stats],
+            'expected': [contig['N'] for contig in contig_stats],
+            'observed': [contig['M'] for contig in contig_stats],
+            'coverage': [contig['coverage'] for contig in contig_stats],
+            'contig locations': [
+                f"{contig['contig'].location.start}..{contig['contig'].location.end}"
+                for contig in contig_stats
+            ],
+            'grouped': False,
+            'p': None,
+            'distribution': ''
+        }        
+            
+        # Cluster contigs
+        if not groups['contig locations']:
+            return groups
+            
+        groups = tools.classify_methylation_contigs(dataset=groups,
+            min_motifs=min_motifs,
+            min_coverage=min_coverage,
+            alpha=alpha,
+            max_group_difference=max_group_difference)
+    
         data = output['report']
         modified_sites = []
         if filter_contigs:
@@ -189,15 +219,12 @@ class Interface:
         block_start = data.find("Distribution across contigs:")
         distribution = "biased"
         block_end = data.find(f"The hypothesis of {distribution} distribution")
-        distribution = "uniform"
         if block_end == -1:
-            block_end = data.find("The hypothesis of {distribution} distribution")
+            distribution = "uniform"
+            block_end = data.find(f"The hypothesis of {distribution} distribution")
         if block_start == -1 or block_end == -1:
             return groups
             
-        groups['grouped'] = is_distribution_Biased(data[block_end:], p_cutoff)
-        if groups['grouped'] == False:
-            return groups
         # Assign groups
         groups['distribution'] = distribution
         block = data[block_start:block_end].split("\n")
@@ -212,12 +239,7 @@ class Interface:
                         p_cutoff = None
                     if is_distribution_biased(title, modified_sites, p_cutoff):
                         groups['filtered_contigs'].append(title)
-                if p > p_cutoff:
-                    groups['median'].append(title)
-                elif z < 0:
-                    groups['negative'].append(title)
-                else:
-                    groups['positive'].append(title)
+
         return groups
     
     # Prepare string description of motifs used for modified base filtering
@@ -283,9 +305,17 @@ class Interface:
     
     # Create list of motif object for further verification
     def set_MotifObjLs(self, motif_string,    # Motifs = 'GATC,2,-2; AGNCT,1,-1'
-        reference, binpath, tmppath, 
-        score_cutoff=20, promoter_length = 75, context_mismatches = 0, motif_mismatch = 0, 
-        motifs_or_sites='sites', modified_or_unmodified_sites="M"):
+            reference, 
+            binpath, 
+            tmppath, 
+            score_cutoff=20, 
+            promoter_length = 75, 
+            context_mismatches = 0, 
+            motif_mismatch = 0, 
+            motifs_or_sites='sites', 
+            modified_or_unmodified_sites="M",
+            contigs=[], # List of BioPython features or analogs representing contigs
+            ):
         MotifObjLs = []
         # Circle through motifs
         for motif in [mf.strip() for mf in motif_string.split(";")]:
@@ -300,16 +330,29 @@ class Interface:
                 find_modified_sites = True
             # Create a motif object
             # print("main:302", motif)
-            oMotifObj = motifs.Motif(reference=reference, binpath=binpath, tmppath=tmppath, motif=motif,
-                word=word, motifs_or_sites=motifs_or_sites, modbase_location=direct_locations, reverse_modbase_location=reverse_locations,
-                score_cutoff=score_cutoff, promoter_length=promoter_length, context_mismatches=context_mismatches, strand=self.strand,
-                motif_mismatch=motif_mismatch, filtered_loci=self.filtered_loci, modified_or_unmodified_sites=modified_or_unmodified_sites,
-                max_sites_for_verification=self.options['-r'])
+            oMotifObj = motifs.Motif(reference=reference, 
+                binpath=binpath, 
+                tmppath=tmppath, 
+                motif=motif,
+                word=word, 
+                motifs_or_sites=motifs_or_sites, 
+                modbase_location=direct_locations, 
+                reverse_modbase_location=reverse_locations,
+                score_cutoff=score_cutoff, 
+                promoter_length=promoter_length, 
+                context_mismatches=context_mismatches, 
+                strand=self.strand,
+                motif_mismatch=motif_mismatch, 
+                filtered_loci=self.filtered_loci, 
+                modified_or_unmodified_sites=modified_or_unmodified_sites,
+                max_sites_for_verification=self.options['-r'],
+                contigs=contigs
+            )
             # Add motif object to the list
             MotifObjLs.append(oMotifObj)
         return MotifObjLs
             
-    def create_circular_motif_map(self, GFF_list, genome_list, filtered_loci_list=[]):
+    def create_circular_motif_map(self, GFF_list, genome_list, filtered_loci_list=[], contigs=[]):
         # Cycle across genomes
         outputs = []
         for g in range(len(genome_list)):
@@ -321,9 +364,17 @@ class Interface:
                 oMotifObjLs = _parse_motif_list()
             else:
                 oMotifObjLs = self.set_MotifObjLs(motif_string=self.options['-w'],    # Motifs = 'GATC,2,-2; AGNCT,1,-1'
-                    reference=genome.get_description(), binpath=self.options['-x'], tmppath=self.options['-tmp'], 
-                    score_cutoff=self.options['-c'], promoter_length=self.options['-p'], context_mismatches=self.options['-n'], motif_mismatch=self.options['-z'], 
-                    motifs_or_sites=self.options['-s'], modified_or_unmodified_sites=self.options['-f'].upper()[0])
+                    reference=genome.get_description(), 
+                    binpath=self.options['-x'], 
+                    tmppath=self.options['-tmp'], 
+                    score_cutoff=self.options['-c'], 
+                    promoter_length=self.options['-p'], 
+                    context_mismatches=self.options['-n'], 
+                    motif_mismatch=self.options['-z'], 
+                    motifs_or_sites=self.options['-s'], 
+                    modified_or_unmodified_sites=self.options['-f'].upper()[0],
+                    contigs=contigs,    # List of BioPython features or analogs representing contigs
+                    )
     
             for oMotifObj in oMotifObjLs:
                 if oMotifObj == None:
@@ -387,9 +438,13 @@ class Interface:
                                 if 'contigs' in oTasks and 'contig borders' in oTasks['contigs']:
                                     oSVG.format_contigs(oTasks['contigs']['contig borders'])    # [{title, start, end, z-score : (score, err, p, exp, found)}...
                                 oSVG = oSVG.join(oStatplotSVG, self_tag="circular_map", self_transform="h_center", other_tag="stat_plot")
-                                
-                    outputs.append({'input file':gff['input file'], 'svg':oSVG, 'report':oMotifObj.tostring(text_to_insert=statplot_report),
-                        'svg output file':outfile, 'report output file':outfile + ".txt"})
+                    
+                    # Calculate distribution of methylated sites across contigs. Statisticts is stored to contig.qualifiers['motifs']
+                    outputs.append({'input file':gff['input file'], 'svg':oSVG, 
+                        'report':oMotifObj.tostring(text_to_insert=statplot_report),
+                        'contig statistics':oMotifObj.get_contig_statistics(),
+                        'svg output file':outfile, 
+                        'report output file':outfile + ".txt"})                        
         return outputs
                         
     def create_dotplot(self, GFF_list, genome_list, filtered_loci_list=[]):
@@ -507,7 +562,7 @@ class Interface:
         return outputs
     
     # Create a stand-alone statistical plot
-    def create_statplot(self, GFF_list, genome_list, filtered_loci_list=[]):
+    def create_statplot(self, GFF_list, genome_list, filtered_loci_list=[], contigs=[]):
         outputs = []
         for g in range(len(genome_list)):
             # Get genome object 
@@ -538,9 +593,16 @@ class Interface:
                     flg_verify = False
                 if flg_verify:
                     # Verification of sites
-                    oMotifObj = motifs.Motif(reference=genome['description'], binpath=self.options['-x'], tmppath=self.options['-tmp'],
-                        promoter_length=self.options['-p'], context_mismatches=self.options['-n'], motif_mismatch=self.options['-z'],
-                        filtered_loci=self.filtered_loci, strand=self.strand)
+                    oMotifObj = motifs.Motif(reference=genome['description'], 
+                        binpath=self.options['-x'], 
+                        tmppath=self.options['-tmp'],
+                        promoter_length=self.options['-p'], 
+                        context_mismatches=self.options['-n'], 
+                        motif_mismatch=self.options['-z'],
+                        filtered_loci=self.filtered_loci, 
+                        strand=self.strand,
+                        contigs=contigs # List of BioPython features or analogs representing contigs
+                        )
                     success = oMotifObj.execute(gff_data = sites,
                         gbk_data = os.path.join(self.input_folder,genome) if isinstance(genome, str) else genome)
                     sites = oMotifObj.get_entries()

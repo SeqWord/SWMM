@@ -93,8 +93,20 @@ class Interface:
             return GFF_list
             
         def getSeqFromFASTA(fname,names=[]):
-            oFASTA = self.oIO.parse(fname,"fasta")
-            return {oFASTA.description:{"sequence":oFASTA.seq,"dataset":None},'input file':fname,'accession':oFASTA.description}
+            oFASTA, contigs = self.oIO.parse(fname,"fasta",concatenate=True)
+            '''
+            return {oFASTA.description:{"sequence":oFASTA.seq,
+                "dataset":{'contigs':contigs, 'Gene map':{}}},
+                'input file':fname,
+                'description':oFASTA.description,
+                'accession':oFASTA.description}
+            '''
+            return {
+                'object':oFASTA,
+                "dataset":{'contigs':contigs, 'Gene map':{}},
+                'input file':fname,
+                'description':oFASTA.description,
+                'accession':oFASTA.description}
     
         def getSequenceFromGBK(fname):
             def get_gene_description(g):

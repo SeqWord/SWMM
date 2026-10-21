@@ -49,7 +49,65 @@ if __name__ == "__main__":
             "GANTC,2,-2; GCGC,2,-2; CCWGG,1,-1; AGCT,1,-1; CGCG,1,-1; ATAT,1,-1; GGCC,2,-2"),
         help="Semicolon-separated motif definitions: 'GATC,2,-2; CCWGG,2,-2"
     )
+    
+    # Grouping parameters
+    parser.add_argument(
+        "--grouping_p_cutoff",
+        type=float,
+        default=0.05,
+        help="Cutoff for biased distribution within contigs (default = 0.05)"
+    )
 
+    parser.add_argument(
+        "--min_motifs",
+        type=int,
+        default=20,
+        help="Minimal number of modified sites per contig (default = 20)"
+    )
+
+    parser.add_argument(
+        "--min_coverage",
+        type=int,
+        default=20,
+        help="Minimal average coverage at modified sites (default = 20)"
+    )
+
+    parser.add_argument(
+        "--alpha",
+        type=float,
+        default=0.05,
+        help="alpha-cutoff for modified motif distribution across motifs (default = 0.05)"
+    )
+
+    parser.add_argument(
+        "--max_group_difference",
+        type=float,
+        default=0.05,
+        help="Maximum difference (0–1) between methylation fractions within a group (default = 0.05)"
+    )
+
+    parser.add_argument(
+        "--consensus_threshold",
+        type=float,
+        default=0.65,
+        help="Minimum weighted agreement (0–1) for grouping contigs (default = 0.05)"
+    )
+
+    parser.add_argument(
+        "--min_motif_weight",
+        type=float,
+        default=0.1,
+        help="Minimum weight (0-1) assigned to an informative motif (default = 0.1)"
+    )
+
+    parser.add_argument(
+        "--max_motif_weight",
+        type=float,
+        default=1.0,
+        help="Maximum weight (0-1) assigned to an informative motif (default = 1.0)"
+    )
+
+    # Output parameters
     parser.add_argument(
         "--output_graph_format",
         choices=["SVG", "HTML", "PDF", "EPS", "JPG", "JPEG", "TIF", "TIFF", "PNG", "BMP"],

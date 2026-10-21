@@ -1,8 +1,8 @@
--d	Virgi
--i	D025_4_1M.hifi_reads.mapped.bam.gff
--g	CP192260.gbk
+-d	test
+-i	1.gff
+-g	1.fa
 -ft	
--ogf	SVG
+-ogf	HTML
 -dpi	300
 -m	
 -p	75
@@ -30,6 +30,6 @@
 -dpw	0
 -dps	0
 -dpt	
--sp	Y
+-sp	N
 -tsk	gc, gcs
 -spt	

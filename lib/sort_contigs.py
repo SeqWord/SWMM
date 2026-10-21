@@ -38,6 +38,18 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
+        "--bin_path",
+        default="",
+        help="Path to executable blast files (default: '', standard location)"
+    )
+
+    parser.add_argument(
+        "--tmp_path",
+        default="",
+        help="Path to temporary blast files (default: '', standard location)"
+    )
+
+    parser.add_argument(
         "-g", "--gff_file",
         default="",
         help="GFF file with epigenetic predictions (default: '', search for bin-specific gff files)"

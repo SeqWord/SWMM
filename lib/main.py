@@ -31,9 +31,19 @@ class Interface:
             if not self.options['-tmp']:
                 self.options['-tmp'] = os.path.join(self.options['-x'],"tmp")
 
-        self.input_folder = os.path.join(self.cwd, self.options['-u'], self.options['-d'])
-        self.output_folder = os.path.join(self.cwd, self.options['-o'], self.options['-d'])
-            
+        # Resolve input and output directories
+        input_path = self.options.get('-u') or 'input'
+        output_path = self.options.get('-o') or 'output'
+        project = self.options['-d']
+    
+        self.input_folder = os.path.abspath(
+            os.path.join(self.cwd, input_path, project)
+        )
+    
+        self.output_folder = os.path.abspath(
+            os.path.join(self.cwd, output_path, project)
+        )
+                
     def show_menu(self):
         oMenu = cui.Menu(self.options, version = self.version, date_of_creation = self.date_of_creation)
         self.options = oMenu.show()
@@ -663,6 +673,8 @@ class Interface:
             # Motif setting
             if self.options['-mm'].upper()[0] == "Y":
                 statplot_settings['-w'] = self.options['-w']
+            statplot_settings['-i'] = self.options['-u']
+            statplot_settings['-o'] = self.options['-o']
         return statplot_settings
             
     #### GFF PROCESSING FUNCTIONS

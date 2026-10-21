@@ -1,4 +1,5 @@
-import sys, os, string, math, subprocess, re
+import sys, os, string, math, subprocess, re, shutil
+import xml.etree.ElementTree as ET
 import seq_io
 
 ##############################################################################################################
@@ -67,103 +68,169 @@ class BLAST(container):
     ####        file to be converted to blastdb
     ####  query - path or sequence
     ###################################################
-    def __init__(self,seqtype="dna",binpath="",source_path=""):
+    def __init__(self, seqtype="dna", binpath="", source_path=""):
         self.seqtype = seqtype
         self.path = binpath
         self.source_path = source_path
         self.query = ""
         self.sbjct = ""
-        self.cline = ""
+        self.cline = []
+        self.executables = self._find_executables()
         container.__init__(self)
-    
-    def _set_cline(self,program="blast"):
-        if self.seqtype == "dna":
-            algorithm = "blastn"
-            flg_prot = "F"
-            dbtype = "nucl"
-        elif self.seqtype == "protein":
-            algorithm = "blastp"
-            flg_prot = "T"
-            dbtype = "prot"
-        else:
-            print()
-            print("Sequences type was not specified!")
-            print()
-            return
-        if not self.query or not self.sbjct:
-            print()
-            print("Either query %s or subject %s are wrong!" % (self.query,self.sbjct))
 
-        query = os.path.join(self.source_path, self.query)
-        sbjct = os.path.join(self.path, self.sbjct)
-        
+    def _find_executables(self):
+        """Prefer BLAST+ in PATH; fall back to local BLAST+ or legacy Windows BLAST."""
+        algorithm = "blastp" if self.seqtype == "protein" else "blastn"
+        if self.seqtype not in ("dna", "protein"):
+            raise ValueError("seqtype must be 'dna' or 'protein'")
+
+        installed = {name: shutil.which(name) for name in ("makeblastdb", algorithm)}
+        if all(installed.values()):
+            self.blast_backend = "blast+"
+            print("BLAST+: using installed executables: " +
+                  ", ".join(installed.values()), file=sys.stderr)
+            return installed
+
+        suffix = ".exe" if sys.platform == "win32" else ""
+        local = {name: os.path.abspath(os.path.join(self.path, name + suffix))
+                 for name in ("makeblastdb", algorithm)}
+        if all(os.path.isfile(path) and os.access(path, os.X_OK)
+               for path in local.values()):
+            self.blast_backend = "blast+"
+            print("BLAST+: using local executables: " +
+                  ", ".join(local.values()), file=sys.stderr)
+            return local
+
+        # Older Windows BLAST distributions use blastall.exe and formatdb.exe.
         if sys.platform == "win32":
+            legacy = {
+                "blastall": os.path.abspath(os.path.join(self.path, "blastall.exe")),
+                "formatdb": os.path.abspath(os.path.join(self.path, "formatdb.exe")),
+            }
+            if all(os.path.isfile(path) and os.access(path, os.X_OK)
+                   for path in legacy.values()):
+                self.blast_backend = "legacy"
+                print("Legacy BLAST: using local executables: " +
+                      ", ".join(legacy.values()), file=sys.stderr)
+                return legacy
+            raise FileNotFoundError(
+                "No usable BLAST executables found. Expected installed BLAST+ "
+                "(makeblastdb and %s), local BLAST+ in %s, or local "
+                "blastall.exe AND formatdb.exe in %s." %
+                (algorithm, self.path, self.path))
+
+        raise FileNotFoundError(
+            "No usable BLAST+ executables found in PATH or %s "
+            "(requires makeblastdb and %s)." % (self.path, algorithm))
+
+    def _source_file(self, name):
+        return name if os.path.isabs(name) else os.path.join(self.source_path, name)
+
+    def _set_cline(self, program="blast"):
+        algorithm = "blastp" if self.seqtype == "protein" else "blastn"
+        if not self.query or not self.sbjct:
+            raise ValueError("BLAST query and database names must not be empty")
+        query = self._source_file(self.query)
+        db = self._source_file(self.sbjct)
+        if self.blast_backend == "legacy":
             if program == "formatdb":
-                self.cline = [
-                    os.path.join(self.path, "blastall.exe"),
-                    "-p", algorithm,
-                    "-i", query,
-                    "-d", sbjct,
-                    "-G", "6",
-                    "-E", "2",
-                    "-F", "F",
-                    "-q", "-2",
-                    "-r", "1",
-                    "-e", "1.0",
-                ]
-            
-        
+                self.cline = [self.executables["formatdb"], "-i", query,
+                              "-p", "T" if self.seqtype == "protein" else "F",
+                              "-n", db]
             elif program == "blast":
-                default = "-G 6 -E 2 -F F -q -2 -r 1 -e 1.0"
-                self.cline = [
-                    os.path.join(self.path, "blastall.exe"),
-                    "-p", algorithm,
-                    "-i", query,
-                    "-d", sbjct,
-                    "-G", "6",
-                    "-E", "2",
-                    "-F", "F",
-                    "-q", "-2",
-                    "-r", "1",
-                    "-e", "1.0",
-                ]
-                    
-    def execute(self,query="",sbjct="",print_output=False):
+                self.cline = [self.executables["blastall"], "-p", algorithm,
+                              "-i", query, "-d", db, "-e", "1.0"]
+                if self.seqtype == "dna":
+                    self.cline += ["-G", "6", "-E", "2", "-F", "F",
+                                   "-q", "-2", "-r", "1"]
+            else:
+                raise ValueError("Unknown BLAST operation: " + program)
+        elif program == "formatdb":
+            self.cline = [self.executables["makeblastdb"], "-in", query,
+                          "-dbtype", "prot" if self.seqtype == "protein" else "nucl",
+                          "-out", db]
+        elif program == "blast":
+            self.cline = [self.executables[algorithm], "-query", query,
+                          "-db", db, "-outfmt", "5", "-evalue", "1.0"]
+            if self.seqtype == "dna":
+                self.cline += ["-gapopen", "6", "-gapextend", "2",
+                               "-dust", "no", "-penalty", "-2", "-reward", "1"]
+        else:
+            raise ValueError("Unknown BLAST operation: " + program)
+
+    def execute(self, query="", sbjct="", print_output=False):
         self.remove_all()
-        self.query = query
-        self.sbjct = sbjct
-        self._set_cline()
+        self.query, self.sbjct = query, sbjct
+        self._set_cline("blast")
         if print_output:
             print(self.cline)
         output = self.process(self.cline)
         if not output:
             return False
         if print_output:
-            print(output)
-        oParser = parser("blast",output)
-        self.container = oParser()
+            print(output.decode("utf-8", errors="replace"))
+        if self.blast_backend == "legacy":
+            self.container = parser("blast", output)() or []
+        else:
+            self.container = self._parse_xml(output)
         return True
-    
-    def create_db(self,fasta_file,dbname):
-        self.query = fasta_file
-        self.sbjct = dbname
+
+    @staticmethod
+    def _parse_xml(output):
+        """Convert BLAST+ XML output to the existing SWMM record/HSP objects."""
+        root = ET.fromstring(output)
+        records = []
+        for iteration in root.findall(".//Iteration"):
+            title = iteration.findtext("Iteration_query-def", default="")
+            query_length = int(iteration.findtext("Iteration_query-len", default="0"))
+            record = blast_record(query_length, title)
+            for hit in iteration.findall("./Iteration_hits/Hit"):
+                hit_title = hit.findtext("Hit_def", default="")
+                hit_length = int(hit.findtext("Hit_len", default="0"))
+                hsps = []
+                for h in hit.findall("./Hit_hsps/Hsp"):
+                    qstart = int(h.findtext("Hsp_query-from"))
+                    qend = int(h.findtext("Hsp_query-to"))
+                    sstart = int(h.findtext("Hsp_hit-from"))
+                    send = int(h.findtext("Hsp_hit-to"))
+                    strand = "Plus/Plus" if sstart <= send else "Plus/Minus"
+                    hsps.append(blast_hsp(
+                        float(h.findtext("Hsp_bit-score", default="0")),
+                        float(h.findtext("Hsp_evalue", default="1")),
+                        int(h.findtext("Hsp_align-len", default="0")),
+                        int(h.findtext("Hsp_identity", default="0")),
+                        int(h.findtext("Hsp_positive", default="0")),
+                        int(h.findtext("Hsp_gaps", default="0")),
+                        strand, qstart, sstart, qend, send,
+                        h.findtext("Hsp_qseq", default=""),
+                        h.findtext("Hsp_hseq", default=""),
+                        h.findtext("Hsp_midline", default="")))
+                if hsps:
+                    score = max(h.score for h in hsps)
+                    evalue = min(h.expect for h in hsps)
+                    record.add_description(hit_title, score, evalue)
+                    record.add_alignment(blast_alignment(hit_length, hit_title,
+                                                         score, evalue, hsps))
+            records.append(record)
+        return records
+
+    def create_db(self, fasta_file, dbname):
+        self.query, self.sbjct = fasta_file, dbname
         self._set_cline("formatdb")
         self.process(self.cline)
-    
-    def process(self,cline,flg_wait=False):
-        process = subprocess.Popen(
-            cline,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            shell=False,)
-        if flg_wait:
-            process.wait()
-        process.stdin.close()
-        output = process.stdout.read()
-        process.stdout.close()
-        return output
-    
+
+    def process(self, cline, flg_wait=False):
+        if not cline or not cline[0]:
+            raise RuntimeError("BLAST executable path is empty")
+        result = subprocess.run(cline, stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE, check=False)
+        if result.returncode != 0:
+            raise RuntimeError(
+                "BLAST command failed (exit %d): %r\n%s" %
+                (result.returncode, cline,
+                 result.stderr.decode("utf-8", errors="replace")))
+        return result.stdout
+
     def tostring(self,e_threshold=None):
         query_summary = header = output = ""
         sbjct_summary = {}

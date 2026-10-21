@@ -41,6 +41,8 @@ class MetaSorter:
         options['-s'] = "sites"                         # Request site statistics instead of motif statistics
         options['-f'] = "M"                             # Request statistics of methylated sites instead of unmethylated 'U'
         options['-r'] = 0                               # No limits for number of validated sites (server application)
+        options['-x'] = os.path.join("lib","bin") if args.bin_path == "" else args.bin_path         # Path to directory with executable blast files 
+        options['-tmp'] = os.path.join("lib","bin","tmp") if args.tmp_path == "" else args.tmp_path # Path to temporary blast directory s 
         
         separator = args.file_name_separator
         

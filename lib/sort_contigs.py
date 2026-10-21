@@ -94,8 +94,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--max_group_difference",
         type=float,
-        default=0.05,
-        help="Maximum difference (0–1) between methylation fractions within a group (default = 0.05)"
+        default=0.15,
+        help="Maximum difference (0–1) between methylation fractions within a group (default = 0.15)"
     )
 
     parser.add_argument(
@@ -117,6 +117,18 @@ if __name__ == "__main__":
         type=float,
         default=1.0,
         help="Maximum weight (0-1) assigned to an informative motif (default = 1.0)"
+    )
+
+    parser.add_argument(
+        "--uncertain_weight",
+        type=float,
+        default=0.1,
+        metavar="FLOAT",
+        help=(
+            "Relative weight (0–1) of evidence involving uncertain contigs. "
+            "A value of 0.1 assigns 10%% of the normal motif weight; "
+            "0 disables uncertain-contig evidence. (default: %(default)s)"
+        )
     )
 
     # Output parameters

@@ -219,6 +219,13 @@ class MetaSorter:
                 max_motif_weight = args.max_motif_weight,       # Maximum weight assigned to an informative motif.
                                                                 # Limits the influence of motifs with very small p-values.
                                                                 # Prevents one motif from dominating the consensus.
+                max_group_difference=args.max_group_difference, # Minimal difference between groups in fractions of modified motifs 
+                                                                # Used to compare low-methylated contigs with unmethylated contigs
+                                                                # joined into 'uncertain' group.
+                uncertain_weight=args.uncertain_weight,         # Relative weight of evidence involving uncertain contigs.
+                                                                # A value of 0.1 means that comparisons involving
+                                                                # uncertain contigs contribute 10% of the normalmotif weight.
+                                                                # A value of 0 disables uncertain-contig evidence.
                 )
             if len(grouped_contigs) == 0:
                 tools.msg(f"Failed with {basename}!")

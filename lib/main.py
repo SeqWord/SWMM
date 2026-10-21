@@ -210,7 +210,9 @@ class Interface:
         if not groups['contig locations']:
             return groups
             
-        groups = tools.classify_methylation_contigs(dataset=groups,
+        groups = tools.classify_methylation_contigs(
+            motif=motif,
+            dataset=groups,
             min_motifs=min_motifs,
             min_coverage=min_coverage,
             alpha=alpha,

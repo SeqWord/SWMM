@@ -47,7 +47,7 @@ class MetaSorter:
         separator = args.file_name_separator
         
         # List of motifs
-        motifs = [s.strip() for s in args.motifs.split(";")]
+        motifs = [s.strip() for s in args.motifs.strip().strip(";").split(";")]
         
         if len(motifs) == 0:
             sys.exit("No motifs were specified!")
@@ -111,32 +111,36 @@ class MetaSorter:
                 
             if not genome or not contigs:
                 raise ValueError(f"File {seq_fname} has wrong format or corrupted!")
-                    
-           
-            # Parse GFF file    
+
+            # Parse GFF file
             if master_gff is None:
-                candidate_gff_files = [fn for fn in os.listdir(os.path.abspath(os.path.join(args.input_folder, args.project_folder))) 
-                    if fn.upper().startswith(basename.upper()) and fn.upper().endswith(".GFF")]
-                
-                # Skip if pair sequence file has not been found
-                if len(candidate_gff_files) == 0:
-                    tools.alert(f"GFF file for sequence file {seq_fname} in folder {os.path.join(args.input_folder, args.project_folder)} has not been found!")
-                    continue
-                    
-                   
-                gff_fname = candidate_gff_files[0]
+            
+                gff_fname = basename + ".gff"
                 gff_path = os.path.join(input_path, gff_fname)
-                
+            
+                if not os.path.isfile(gff_path):
+                    tools.alert(
+                        f"GFF file {gff_fname} for sequence file "
+                        f"{seq_fname} has not been found!"
+                    )
+                    continue
+            
             else:
                 gff_fname = basename + ".gff"
                 gff_path = os.path.join(outpath, gff_fname)
-                gff_records = self.select_bin_gff(master_gff, genome.get_contig_titles())
-                if len(gff_records) == 0:
-                    tools.alert(f"GFF records for sequence file {seq_fname} have not been found!")
-                    continue
-                    
-                self.oIO.save("\n".join(gff_records), gff_path)
             
+                gff_records = self.select_bin_gff(
+                    master_gff, genome.get_contig_titles()
+                )
+            
+                if len(gff_records) == 0:
+                    tools.alert(
+                        f"GFF records for sequence file {seq_fname} "
+                        f"have not been found!"
+                    )
+                    continue
+            
+                self.oIO.save("\n".join(gff_records), gff_path)           
             
             GFF_list = self.parse_gff_file(gff_path, contigs)
             

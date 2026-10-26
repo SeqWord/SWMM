@@ -1285,349 +1285,127 @@ def match(rec, reg_motif, n, motif_template_length):
 # Methylation classificator
 def classify_methylation_contigs(
     dataset,
-    min_motifs=20,               # Minimum number of motif occurrences per contig
-    min_coverage=20,             # Minimum average coverage at modified sites
-    alpha=0.05,                  # Significance cutoff for methylation heterogeneity
-    max_group_difference=0.16,   # Maximum difference between methylation fractions within a group
-    motif="",
+    min_motifs=20,
+    min_coverage=20,
+    alpha=0.05,
+    max_group_difference=0.16,
+    motif=""
 ):
     """
-    Test methylation uniformity across contigs and identify
-    groups with different methylation fractions.
-
-    Clustering is based on normalized methylation fractions
-    using complete-linkage hierarchical clustering.
+    Classify contigs according to their methylation fractions.
 
     Parameters
     ----------
     dataset : dict
-        Dictionary containing the following fields:
+        Dictionary containing:
+            expected
+            observed
+            coverage
+            fractions
+            contig locations
 
-        motif : str
-            Methylation motif identifier.
+    min_motifs : int
+        Minimum number of expected motif sites per contig.
 
-        fractions : list[float]
-            Fractions of methylated sites per contig.
-            These values are recalculated from observed and expected counts.
+    min_coverage : int
+        Minimum coverage required only when the number of
+        observed methylated sites exceeds min_motifs.
 
-        expected : list[int]
-            Number of motif occurrences per contig.
+    alpha : float
+        Significance threshold for the G-test of uniformity.
 
-        observed : list[int]
-            Number of methylated sites per contig.
-
-        coverage : list[float]
-            Average sequencing coverage per contig.
-
-        contig locations : list[str]
-            Contig identifiers or locations.
-
-    min_motifs : int, default=20
-        Minimum number of motif occurrences required for
-        statistical analysis.
-
-    min_coverage : float, default=20
-        Minimum average sequencing coverage.
-
-    alpha : float, default=0.05
-        Significance threshold for the global uniformity test.
-
-    max_group_difference : float, default=0.16
-        Maximum difference between methylation fractions
-        within a group.
+    max_group_difference : float
+        Maximum methylation-fraction difference allowed
+        within a hierarchical cluster.
 
     motif : str
-        Motif specification, for example:
-
-            GATC,2,-2
-            GANTC,2,-2
-
-        The first element specifies the nucleotide motif.
-        Subsequent elements specify methylation positions.
-
-        For palindromic motifs, each motif occurrence is
-        counted once.
-
-        For non-palindromic motifs, the expected number
-        of methylation sites is multiplied by the number
-        of specified methylation positions.
+        Motif definition, e.g. "GATC,2,-2".
 
     Returns
     -------
     dict
-        Updated copy of the input dictionary.
-
-        fractions : list[float]
-            Recalculated methylation fractions.
-            NaN indicates zero expected methylation sites.
-
-        positive : list[str]
-            Contigs belonging to the most methylated group.
-
-        negative : list[str]
-            Contigs belonging to the least methylated group.
-
-        median : list
-            Contigs belonging to intermediate groups.
-            If no distinct groups are identified, contains
-            all statistically eligible contigs.
-
-        uncertain : list[str]
-            Contigs excluded because of insufficient motif
-            counts, sequencing coverage, or invalid fractions.
-
-        groups : list[list[str]]
-            Groups ordered from highest to lowest methylation.
-
-        grouped : bool
-            True if two or more groups are identified.
-
-        p : float or None
-            P-value of the global methylation homogeneity test.
-
-    Notes
-    -----
-    1. Palindromic motifs are identified by comparing the
-       motif sequence with its reverse complement.
-
-    2. Expected methylation counts are calculated as:
-
-           expected = motif_counts
-
-       for palindromic motifs, or:
-
-           expected = motif_counts * n_sites
-
-       for non-palindromic motifs.
-
-    3. Methylation fractions are recalculated using:
-
-           fraction = observed / expected
-
-    4. The global uniformity test uses a binomial
-       likelihood-ratio statistic (G-test).
-
-    5. Complete-linkage clustering ensures that the maximum
-       difference between methylation fractions within each
-       group does not exceed max_group_difference.
-
-    6. The number of groups is determined automatically.
-
-    7. The original 'distribution' and 'filtered_contigs'
-       fields are preserved.
-
-    8. The binomial test assumes independent methylation-site
-       observations. Its p-values may be optimistic if
-       methylation states are correlated within contigs.
+        Updated dataset containing grouping results and
+        the G-test p-value.
     """
 
-    # -------------------------------------------------------
-    # 1. Import required modules
-    # -------------------------------------------------------
+    import numpy as np
 
-    try:
-        from scipy.cluster.hierarchy import linkage, fcluster
-        from scipy.spatial.distance import pdist
-        from scipy.special import xlogy
-        from scipy.stats import chi2
+    from scipy.stats import chi2
+    from scipy.cluster.hierarchy import linkage, fcluster
+    from scipy.spatial.distance import pdist
 
-    except ImportError:
-        sys.exit("ERROR: Necessary module scipy is not installed!")
+    result = dataset.copy()
 
     # -------------------------------------------------------
-    # 2. Copy input dictionary
+    # Read data
     # -------------------------------------------------------
 
-    result = copy.deepcopy(dataset)
+    expected = np.asarray(
+        result["expected"], dtype=int
+    )
+
+    observed = np.asarray(
+        result["observed"], dtype=int
+    )
+
+    coverage = np.asarray(
+        result["coverage"], dtype=float
+    )
+
+    fractions = np.asarray(
+        result["fractions"], dtype=float
+    )
 
     locations = result["contig locations"]
 
-    n_contigs = len(locations)
-
     # -------------------------------------------------------
-    # 3. Determine number of methylation sites per motif
+    # Account for multiple modified positions per motif
     # -------------------------------------------------------
 
-    # Examples:
-    #
-    # GATC,2,-2  -> palindromic, multiplier = 1
-    # GANTC,2,-2 -> non-palindromic, multiplier = 2
+    if motif:
+        N = len(motif.split(",")) - 1
+    else:
+        N = 1
 
-    motif_parts = [part.strip() for part in motif.split(",")]
-
-    motif_sequence = motif_parts[0].upper()
-
-    n_sites = len(motif_parts) - 1
-
-    if not motif_sequence or n_sites < 1:
-        raise ValueError(
-            f"Invalid motif specification: {motif}"
-        )
-
-    # Check whether the motif is palindromic.
-
-    is_palindromic = (
-        motif_sequence == reverse_complement(motif_sequence)
-    )
-
-    # For palindromic motifs, count each occurrence once.
-    # For non-palindromic motifs, count all specified sites.
-
-    n_expected_sites = 1 if is_palindromic else n_sites
+    expected = (expected * N).astype(int)
 
     # -------------------------------------------------------
-    # 4. Read input arrays
-    # -------------------------------------------------------
-
-    # Original number of motif occurrences per contig
-
-    motif_counts = np.asarray(
-        result["expected"],
-        dtype=int
-    )
-
-    # Expected number of methylation sites
-
-    expected = motif_counts * n_expected_sites
-
-    # Observed number of methylated sites
-
-    observed = np.asarray(
-        result["observed"],
-        dtype=int
-    )
-
-    # Average sequencing coverage
-
-    coverage = np.asarray(
-        result["coverage"],
-        dtype=float
-    )
-
-    # -------------------------------------------------------
-    # 5. Validate input arrays
-    # -------------------------------------------------------
-
-    if not all(
-        len(x) == n_contigs
-        for x in (
-            motif_counts,
-            expected,
-            observed,
-            coverage
-        )
-    ):
-        raise ValueError(
-            "Input arrays have different lengths."
-        )
-
-    if np.any(motif_counts < 0):
-        raise ValueError(
-            "Expected motif counts cannot be negative."
-        )
-
-    if np.any(observed < 0):
-        raise ValueError(
-            "Observed methylation counts cannot be negative."
-        )
-
-    if np.any(observed > expected):
-
-        invalid = np.where(observed > expected)[0]
-
-        details = [
-            (
-                f"{locations[i]}: "
-                f"observed={observed[i]}, "
-                f"expected={expected[i]}"
-            )
-            for i in invalid[:10]
-        ]
-
-        raise ValueError(
-            f"Observed {motif} methylation counts exceed "
-            f"expected counts:\n" +
-            "\n".join(details)
-        )
-
-    if not 0 < alpha < 1:
-        raise ValueError(
-            "alpha must be between 0 and 1."
-        )
-
-    if not 0 <= max_group_difference <= 1:
-        raise ValueError(
-            "max_group_difference must be between 0 and 1."
-        )
-
-    if min_motifs < 1:
-        raise ValueError(
-            "min_motifs must be at least 1."
-        )
-
-    if min_coverage < 0:
-        raise ValueError(
-            "min_coverage cannot be negative."
-        )
-
-    # -------------------------------------------------------
-    # 6. Recalculate methylation fractions
-    # -------------------------------------------------------
-
-    fractions = np.divide(
-        observed,
-        expected,
-        out=np.full(
-            n_contigs,
-            np.nan,
-            dtype=float
-        ),
-        where=expected > 0
-    )
-
-    # Preserve recalculated fractions in output dictionary
-
-    result["fractions"] = fractions.tolist()
-
-    # -------------------------------------------------------
-    # 7. Initialize output fields
+    # Initialize results
     # -------------------------------------------------------
 
     result["positive"] = []
     result["negative"] = []
     result["median"] = []
-
-    result["groups"] = []
+    result["filtered_contigs"] = []
     result["uncertain"] = []
-
+    result["groups"] = []
     result["grouped"] = False
     result["p"] = None
 
-    # Preserve:
-    # result["distribution"]
-    # result["filtered_contigs"]
+    # -------------------------------------------------------
+    # Filter unreliable contigs
+    # -------------------------------------------------------
 
-    # -------------------------------------------------------
-    # 8. Identify statistically eligible contigs
-    # -------------------------------------------------------
+    # Coverage is checked only when the number of observed
+    # methylated sites exceeds min_motifs.
 
     reliable = (
-        (motif_counts >= min_motifs)
-        & (coverage >= min_coverage)
+        (expected >= min_motifs)
+        & ((observed <= min_motifs) | (coverage >= min_coverage))
         & np.isfinite(coverage)
         & np.isfinite(fractions)
     )
 
-    result["uncertain"] = [
-        locations[i]
-        for i in range(n_contigs)
-        if not reliable[i]
-    ]
-
     indices = np.where(reliable)[0]
 
-    # Fewer than two eligible contigs:
-    # statistical comparison is impossible.
+    result["uncertain"] = [
+        locations[i]
+        for i in np.where(~reliable)[0]
+    ]
+
+    # -------------------------------------------------------
+    # Insufficient number of contigs
+    # -------------------------------------------------------
 
     if len(indices) < 2:
 
@@ -1638,77 +1416,72 @@ def classify_methylation_contigs(
 
         return result
 
-    n = expected[indices]
-    k = observed[indices]
-
-    p = fractions[indices]
-
     # -------------------------------------------------------
-    # 9. Binomial log-likelihood
+    # G-test for uniform methylation distribution
     # -------------------------------------------------------
 
-    def binomial_loglik(successes, totals):
-        """
-        Maximum binomial log-likelihood assuming a common
-        methylation probability.
+    n = expected[indices].astype(float)
+    k = observed[indices].astype(float)
 
-        Binomial coefficients are omitted because they
-        cancel in likelihood-ratio comparisons.
-        """
-
-        K = np.sum(successes)
-        T = np.sum(totals)
-
-        if T == 0:
-            return 0.0
-
-        probability = K / T
-
-        return float(
-            xlogy(K, probability)
-            + xlogy(T - K, 1.0 - probability)
+    # Validate counts.
+    if np.any(k < 0) or np.any(k > n):
+        raise ValueError(
+            "Observed methylated sites must be between "
+            "zero and the number of expected motif sites."
         )
 
-    # -------------------------------------------------------
-    # 10. Global test of methylation uniformity
-    # -------------------------------------------------------
+    total_n = np.sum(n)
+    total_k = np.sum(k)
 
-    # Null hypothesis:
-    # All contigs have the same methylation probability.
+    p_uniform = total_k / total_n
 
-    ll_uniform = binomial_loglik(k, n)
+    # Binomial log-likelihood under individual probabilities.
 
-    # Alternative hypothesis:
-    # Each contig has its own methylation probability.
+    p_individual = k / n
 
-    ll_individual = sum(
-        binomial_loglik(
-            np.asarray([ki]),
-            np.asarray([ni])
+    with np.errstate(divide="ignore", invalid="ignore"):
+
+        ll_individual = np.sum(
+            np.where(
+                k > 0,
+                k * np.log(p_individual),
+                0.0
+            )
+            +
+            np.where(
+                n - k > 0,
+                (n - k) * np.log(1 - p_individual),
+                0.0
+            )
         )
-        for ki, ni in zip(k, n)
-    )
 
-    # Likelihood-ratio statistic
+        ll_uniform = np.sum(
+            np.where(
+                k > 0,
+                k * np.log(p_uniform),
+                0.0
+            )
+            +
+            np.where(
+                n - k > 0,
+                (n - k) * np.log(1 - p_uniform),
+                0.0
+            )
+        )
 
     statistic = max(
         0.0,
         2.0 * (ll_individual - ll_uniform)
     )
 
-    degrees_of_freedom = len(indices) - 1
-
     p_value = float(
-        chi2.sf(
-            statistic,
-            degrees_of_freedom
-        )
+        chi2.sf(statistic, len(indices) - 1)
     )
 
     result["p"] = p_value
 
     # -------------------------------------------------------
-    # 11. Uniform methylation
+    # Check uniformity
     # -------------------------------------------------------
 
     if p_value >= alpha:
@@ -1718,143 +1491,97 @@ def classify_methylation_contigs(
             for i in indices
         ]
 
-        # No groups are created.
-        #
-        # positive = []
-        # negative = []
-        # groups = []
-        # grouped = False
-
         return result
 
     # -------------------------------------------------------
-    # 12. Hierarchical clustering
+    # Hierarchical clustering
     # -------------------------------------------------------
 
-    # Clustering uses normalized methylation fractions.
-    #
-    # Complete linkage ensures that the maximum pairwise
-    # difference within each group does not exceed the
-    # specified threshold.
+    values = fractions[indices].reshape(-1, 1)
 
     distances = pdist(
-        p.reshape(-1, 1),
+        values,
         metric="euclidean"
     )
 
-    hierarchy = linkage(
+    Z = linkage(
         distances,
         method="complete"
     )
 
-    # Determine groups using the maximum allowed
-    # within-group methylation difference.
-
     labels = fcluster(
-        hierarchy,
+        Z,
         t=max_group_difference,
         criterion="distance"
     )
 
     # -------------------------------------------------------
-    # 13. Construct groups
+    # Collect groups
     # -------------------------------------------------------
 
-    groups = []
+    grouped = {}
 
-    for label in np.unique(labels):
+    for index, label in zip(indices, labels):
 
-        mask = labels == label
+        grouped.setdefault(
+            int(label), []
+        ).append(int(index))
 
-        group_indices = indices[mask]
+    # Sort groups by their mean methylation fraction.
 
-        # Calculate the overall methylation fraction
-        # for the group using exact methylation-site counts.
-        #
-        # This is used only for ordering groups.
-        #
-        # Individual contig fractions are used
-        # for clustering.
-
-        group_expected = np.sum(
-            expected[group_indices]
-        )
-
-        group_observed = np.sum(
-            observed[group_indices]
-        )
-
-        group_fraction = (
-            group_observed / group_expected
-        )
-
-        # Preserve the original order of contigs
-        # within each group.
-
-        group_locations = [
-            locations[i]
-            for i in group_indices
-        ]
-
-        groups.append(
-            (
-                group_fraction,
-                group_locations
-            )
-        )
-
-    # -------------------------------------------------------
-    # 14. Sort groups by methylation fraction
-    # -------------------------------------------------------
-
-    # Highest methylation first.
-
-    groups.sort(
-        key=lambda x: x[0],
-        reverse=True
+    sorted_groups = sorted(
+        grouped.values(),
+        key=lambda group: np.mean(fractions[group])
     )
 
-    # -------------------------------------------------------
-    # 15. Handle a single group
-    # -------------------------------------------------------
-
-    if len(groups) == 1:
-
-        result["median"] = groups[0][1]
-
-        return result
-
-    # -------------------------------------------------------
-    # 16. Assign multiple groups
-    # -------------------------------------------------------
-
     result["groups"] = [
-        group_locations
-        for _, group_locations in groups
+        [locations[i] for i in group]
+        for group in sorted_groups
     ]
 
-    # Most methylated group
+    result["grouped"] = len(sorted_groups) > 1
 
-    result["positive"] = groups[0][1]
+    # -------------------------------------------------------
+    # Assign negative, positive and intermediate groups
+    # -------------------------------------------------------
 
-    # Least methylated group
-
-    result["negative"] = groups[-1][1]
-
-    # Intermediate groups
-
-    if len(groups) > 2:
+    if len(sorted_groups) == 1:
 
         result["median"] = [
-            group_locations
-            for _, group_locations in groups[1:-1]
+            locations[i]
+            for i in sorted_groups[0]
         ]
 
-    result["grouped"] = True
+    elif len(sorted_groups) == 2:
+
+        result["negative"] = [
+            locations[i]
+            for i in sorted_groups[0]
+        ]
+
+        result["positive"] = [
+            locations[i]
+            for i in sorted_groups[-1]
+        ]
+
+    else:
+
+        result["negative"] = [
+            locations[i]
+            for i in sorted_groups[0]
+        ]
+
+        result["positive"] = [
+            locations[i]
+            for i in sorted_groups[-1]
+        ]
+
+        result["median"] = [
+            [locations[i] for i in group]
+            for group in sorted_groups[1:-1]
+        ]
 
     return result
-
-
 '''
 group_collection example:
 {'motif': 'GATC,2,-2', 

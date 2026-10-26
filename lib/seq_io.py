@@ -120,6 +120,9 @@ class IO:
                 genome_name = entry["genome"]
     
                 if genome_name not in contig_starts:
+                    print("seq_io:123, genome name: ", genome_name)
+                    print("seq_io:124, contig_starts: ", contig_starts)
+                    print("seq_io:125, entry: ", entry)
                     raise ValueError(
                         f"Contig '{genome_name}' from GFF was not found in contig list."
                     )

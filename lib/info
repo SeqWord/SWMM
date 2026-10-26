@@ -1,6 +1,6 @@
 -d	test
--i	1.gff
--g	1.fa
+-i	cbing_003_basemods.gff
+-g	cbing_003_basemods.fasta
 -ft	
 -ogf	HTML
 -dpi	300
@@ -30,6 +30,6 @@
 -dpw	0
 -dps	0
 -dpt	
--sp	N
+-sp	Y
 -tsk	gc, gcs
 -spt	

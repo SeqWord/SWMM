@@ -194,22 +194,10 @@ class MetaSorter:
                         
                     # Save output
                     oMain.save_output(output, path=outpath)
-                '''
-                print("\nmetasorter:192")
-                print(groups)
-                print()
-                '''
+
                 # Clean TMP folder
                 oMain.clean_tmp_folder()
                 tools.msg("\tDone.")
-
-            '''
-            print("metasorter:201", len(group_collection))
-            for group in group_collection:
-                print()
-                print(group)
-            print()
-            '''
 
             grouped_contigs = tools.group_contigs(contig_locations, 
                 group_collection, 

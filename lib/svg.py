@@ -1,6 +1,9 @@
 import os, math, time
 import tools
 import numpy as np
+import subprocess
+import tempfile
+from pathlib import Path
 
 ########################################################################
 class SVG:
@@ -202,89 +205,242 @@ class SVG:
             return False
         return True
         
+
     def convert_svg_to_pdf(self, svg_code, output_pdf="output.pdf", dpi=None):
-        """Convert SVG to PDF format."""
+        """
+        Convert SVG code to vector PDF format.
+    
+        Parameters
+        ----------
+        svg_code : str
+            SVG image represented as a string.
+        output_pdf : str
+            Output PDF filename.
+        dpi : int, optional
+            SVG rendering resolution (default: CairoSVG default).
+        """
         try:
             import cairosvg
-            cairosvg.svg2pdf(bytestring=svg_code.encode('utf-8'), write_to=output_pdf + ".pdf")
+    
+            output_pdf = str(output_pdf)
+    
+            if not output_pdf.lower().endswith(".pdf"):
+                output_pdf += ".pdf"
+    
+            os.makedirs(os.path.dirname(os.path.abspath(output_pdf)),
+                        exist_ok=True)
+    
+            kwargs = {
+                "bytestring": svg_code.encode("utf-8"),
+                "write_to": output_pdf
+            }
+    
+            if dpi is not None:
+                kwargs["dpi"] = dpi
+    
+            cairosvg.svg2pdf(**kwargs)
+    
         except Exception as e:
-            tools.alert(f"Problem with converting SVG to PDF! Error: {e}")
+            tools.alert(
+                f"Problem with converting SVG to PDF! Error: {e}"
+            )
             return False
+    
         return True
     
-    import os
-
+    
     def convert_svg_to_eps(self, svg_code, output_path):
-        """Convert SVG to EPS (PostScript) format."""
+        """
+        Convert SVG code to vector EPS format.
+    
+        Conversion:
+            SVG -> PDF -> EPS
+    
+        Requires:
+            cairosvg
+            Poppler (pdftops.exe)
+    
+        Preserves vector graphics whenever supported by the
+        SVG, CairoSVG and PostScript rendering pipeline.
+        """
         try:
             import cairosvg
-            from PIL import Image
-            from pdf2image import convert_from_path
-            
-            # Define tmp folder path
-            os.makedirs(self.tmp_path, exist_ok=True)  # Ensure tmp folder exists
-            
-            # Step 1: Convert SVG to temporary PDF in tmp folder
-            temp_pdf = os.path.join(self.tmp_path, f"{tools.random_id(6)}_temp.pdf")
-            cairosvg.svg2pdf(bytestring=svg_code.encode('utf-8'), write_to=temp_pdf)
-            
-            # Check if temp PDF was created
-            if not os.path.exists(temp_pdf):
-                raise FileNotFoundError(f"Temporary PDF not created: {temp_pdf}")
-            
-            # Step 2: Convert PDF to EPS using pdf2image and Pillow
-            temp_image = os.path.join(self.tmp_path, f"{tools.random_id(6)}_temp_image.png")
-            pages = convert_from_path(temp_pdf, dpi=300, output_folder=self.tmp_path)
-            pages[0].save(temp_image, "PNG")  # Save first page as image
-            
-            # Open the image and save as EPS
-            img = Image.open(temp_image)
-            img.save(output_path + ".eps" if not output_path.upper().endswith(".EPS") else output_path, "EPS")
-            
-            # Clean up temporary files
-            os.remove(temp_pdf)
-            os.remove(temp_image)
+    
+            output_path = str(output_path)
+    
+            if not output_path.lower().endswith(".eps"):
+                output_path += ".eps"
+    
+            # Ensure output directory exists
+            os.makedirs(
+                os.path.dirname(os.path.abspath(output_path)),
+                exist_ok=True
+            )
+    
+            # Poppler installation directory
+            poppler_dir = Path(r"C:\msys64\ucrt64\bin")
+            pdftops = poppler_dir / "pdftops.exe"
+    
+            if not pdftops.is_file():
+                raise FileNotFoundError(
+                    f"Poppler utility not found: {pdftops}"
+                )
+    
+            # Ensure temporary directory exists
+            os.makedirs(self.tmp_path, exist_ok=True)
+    
+            # Temporary PDF automatically deleted after conversion
+            with tempfile.TemporaryDirectory(dir=self.tmp_path) as tmp_dir:
+    
+                temp_pdf = os.path.join(tmp_dir, "temp.pdf")
+    
+                # Step 1: SVG -> vector PDF
+                cairosvg.svg2pdf(
+                    bytestring=svg_code.encode("utf-8"),
+                    write_to=temp_pdf
+                )
+    
+                if not os.path.isfile(temp_pdf):
+                    raise FileNotFoundError(
+                        f"Temporary PDF not created: {temp_pdf}"
+                    )
+    
+                # Step 2: PDF -> vector EPS
+                result = subprocess.run(
+                    [
+                        str(pdftops),
+                        "-eps",
+                        temp_pdf,
+                        output_path
+                    ],
+                    check=True,
+                    capture_output=True,
+                    text=True
+                )
+    
+            if not os.path.isfile(output_path):
+                raise FileNotFoundError(
+                    f"EPS output was not created: {output_path}"
+                )
+    
         except Exception as e:
-            tools.alert(f"Problem with converting SVG to EPS! Error: {e}")
+            tools.alert(
+                f"Problem with converting SVG to EPS! Error: {e}"
+            )
             return False
-        return True        
+    
+        return True
+    
 
-    def convert_svg_to_high_quality_raster(self, svg_code, output_path, output_format, dpi=300):
-        """Convert SVG to high-quality raster by first converting to EPS."""
+    def convert_svg_to_high_quality_raster(
+            self, svg_code, output_path, output_format, dpi=300):
+        """
+        Convert SVG directly to high-quality raster format.
+    
+        Supported formats: TIFF, PNG, JPEG, BMP.
+    
+        Uses CairoSVG for high-resolution SVG rendering
+        and Pillow for raster format conversion.
+    
+        No Ghostscript or Poppler required.
+        """
         try:
-            # Define tmp folder path
-            os.makedirs(self.tmp_path, exist_ok=True)  # Ensure tmp folder exists
-            
-            # Convert SVG to EPS
-            temp_eps = os.path.join(self.tmp_path, f"{tools.random_id(6)}_temp.eps")
-            self.convert_svg_to_eps(svg_code, temp_eps)
-            
+            import io
+            import os
+            import cairosvg
             from PIL import Image
-            
-            # Open the EPS and convert to desired raster format
-            img = Image.open(temp_eps)
-            img.load(scale=2)  # Increase the scale for better quality
-            
-            # Convertors
-            if output_format.upper() in ("JPEG", "JPG"):
-                img = img.convert("RGB")  # JPEG does not support transparency
-                img.save(output_path + ".jpg" if not output_path.upper().endswith(".JPG") else output_path, "JPEG", dpi=(dpi, dpi))
-            elif output_format.upper() == "PNG":
-                img.save(output_path + ".PNG" if not output_path.upper().endswith(".PNG") else output_path, "PNG", dpi=(dpi, dpi))
-            elif output_format.upper() in ("TIF", "TIFF"):
-                img.save(output_path + ".tif" if not output_path.upper().endswith(".TIF") else output_path, "TIFF", dpi=(dpi, dpi))
-            elif output_format.upper() == "BMP":
-                img = img.convert("RGB")  # BMP does not support transparency
-                img.save(output_path + ".bmp" if not output_path.upper().endswith(".BMP") else output_path, "BMP")
-            else:
+    
+            # Normalize output format
+            fmt = output_format.upper()
+    
+            format_map = {
+                "JPG": ("JPEG", ".jpg"),
+                "JPEG": ("JPEG", ".jpg"),
+                "PNG": ("PNG", ".png"),
+                "TIF": ("TIFF", ".tif"),
+                "TIFF": ("TIFF", ".tif"),
+                "BMP": ("BMP", ".bmp")
+            }
+    
+            if fmt not in format_map:
                 tools.alert(f"Unsupported raster format: {output_format}")
                 return False
-
+    
+            pil_format, extension = format_map[fmt]
+    
+            # Normalize output filename
+            output_path = str(output_path)
+    
+            known_extensions = (
+                ".jpg", ".jpeg", ".png",
+                ".tif", ".tiff", ".bmp"
+            )
+    
+            if output_path.lower().endswith(known_extensions):
+                output_path = os.path.splitext(output_path)[0]
+    
+            output_file = output_path + extension
+    
+            # Ensure output directory exists
+            output_dir = os.path.dirname(os.path.abspath(output_file))
+            os.makedirs(output_dir, exist_ok=True)
+    
+            # Convert SVG directly to high-resolution PNG in memory
+            png_data = cairosvg.svg2png(
+                bytestring=svg_code.encode("utf-8"),
+                dpi=dpi
+            )
+    
+            # Open PNG from memory
+            with Image.open(io.BytesIO(png_data)) as img:
+    
+                # Convert to RGB for formats without transparency
+                if pil_format in ("JPEG", "BMP"):
+                    if img.mode == "RGBA":
+                        # Replace transparency with white background
+                        background = Image.new(
+                            "RGB", img.size, (255, 255, 255)
+                        )
+                        background.paste(
+                            img,
+                            mask=img.getchannel("A")
+                        )
+                        img = background
+                    else:
+                        img = img.convert("RGB")
+    
+                # TIFF supports RGB and RGBA
+                elif pil_format == "TIFF":
+                    if img.mode not in ("RGB", "RGBA"):
+                        img = img.convert("RGB")
+    
+                # Save image
+                save_kwargs = {}
+    
+                if pil_format in ("TIFF", "PNG", "JPEG"):
+                    save_kwargs["dpi"] = (dpi, dpi)
+    
+                if pil_format == "JPEG":
+                    save_kwargs["quality"] = 95
+                    save_kwargs["subsampling"] = 0
+    
+                elif pil_format == "TIFF":
+                    save_kwargs["compression"] = "tiff_lzw"
+    
+                img.save(
+                    output_file,
+                    format=pil_format,
+                    **save_kwargs
+                )
+    
+            return True
+    
         except Exception as e:
-            tools.alert(f"Problem with high-quality raster conversion! Error: {e}")
+            tools.alert(
+                f"Problem with high-quality raster conversion! Error: {e}"
+            )
             return False
-        return True
-                
+                        
 ##############################################################################################################
 class SVG_dotplot(SVG):
     def __init__(self, data={}, graph_title="", MinX=0, MaxX=0, MinY=0, MaxY=0, width=800, height=600, top_indend = 150, title="", legend="plot"):

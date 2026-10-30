@@ -54,20 +54,10 @@ if __name__ == "__main__":
         default="",
         help="GFF file with epigenetic predictions (default: '', search for bin-specific gff files)"
     )
-    '''
+    
     parser.add_argument(
         "-m", "--motifs",
-        default=("GATC,2,-2; CCGG,2,-2; CCGG,1,-1; CATG,1,-1; CCWGG,2,-2; CCWGG,1,-1;" 
-            "AATT,2,-2; GANTC,2,-2; GCGC,2,-2; AGCT,1,-1; CGCG,1,-1; ATAT,1,-1; GGCC,2,-2;"
-            "GACGAG,5; GGATCC,5; ACAYNNNNNGGT,3,-1"
-            ),
-        help="Semicolon-separated motif definitions: 'GATC,2,-2; CCWGG,2,-2"
-    )
-    '''
-    parser.add_argument(
-        "-m", "--motifs",
-        default=("GATC,2,-2; CCGG,2,-2; CCGG,1,-1; CATG,1,-1; CCWGG,2,-2; CCWGG,1,-1;" 
-            "AATT,2,-2; GANTC,2,-2; GCGC,2,-2; AGCT,1,-1; CGCG,1,-1; ATAT,1,-1; GGCC,2,-2"
+        default=("GATC,2,-2; AATT,2,-2; GANTC,2,-2"
             ),
         help="Semicolon-separated motif definitions: 'GATC,2,-2; CCWGG,2,-2"
     )
